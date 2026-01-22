@@ -1,0 +1,28 @@
+{
+  "name": "tollbooth-backend",
+  "version": "1.0.0",
+  "description": "Backend service for Tollbooth",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xenova/transformers": "^2.17.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "uuid": "^9.0.0",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.15",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "@types/uuid": "^9.0.7",
+    "@types/ws": "^8.5.10",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.2"
+  }
+}

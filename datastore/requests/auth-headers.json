@@ -1,0 +1,12 @@
+{
+  "metadata": {
+    "created_at": 1769015932393
+  },
+  "method": "GET",
+  "url": "https://httpbin.org/headers",
+  "headers": {
+    "Authorization": "Bearer test-token-123",
+    "X-Custom": "custom-value"
+  },
+  "body": "{\"injected\": true}"
+}

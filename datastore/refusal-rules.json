@@ -1,0 +1,16 @@
+[
+  {
+    "id": "refusal_1769086188643_zomeyp",
+    "name": "Any refusal",
+    "enabled": true,
+    "priority": 0,
+    "detection": {
+      "enabled": true,
+      "confidence_threshold": 0.2,
+      "tokens_to_analyze": 0
+    },
+    "action": "prompt_user",
+    "created_at": 1769086188665,
+    "updated_at": 1769086194643
+  }
+]

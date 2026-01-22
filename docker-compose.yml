@@ -1,0 +1,140 @@
+services:
+  proxy:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"  # HTTP proxy port
+    volumes:
+      - ./certs:/home/mitmproxy/.mitmproxy:ro
+      - ./proxy:/app:ro
+    environment:
+      - BACKEND_WS_URL=ws://backend:3001
+      # Max body size to forward to backend (bytes). Larger bodies are truncated.
+      # LLM API bodies are always included in full regardless of this setting.
+      - MAX_BODY_SIZE=${MAX_BODY_SIZE:-1048576}  # Default: 1MB
+    # ============ OPTIONAL: Upstream Proxy (Burp Suite, ZAP, Charles, etc.) ============
+    # Route traffic through an upstream proxy to use its UI alongside this tool.
+    # Works with Burp Suite, OWASP ZAP, Charles Proxy, or any HTTP proxy.
+    #
+    # Setup:
+    #   1. Start your proxy and configure it to listen on port 8081
+    #      (Burp: Proxy > Proxy settings > Add listener on 8081, bind to all interfaces)
+    #   2. Uncomment the 'command:' section below (and 'extra_hosts:' on Linux)
+    #   3. Restart: docker compose up -d proxy
+    #
+    # Traffic flow: Agent → mitmproxy (8080) → Your Proxy (8081) → Internet
+    # Your proxy sees decrypted traffic. Both UIs work simultaneously.
+    #
+    # command: >
+    #   mitmdump -s /app/addon.py
+    #   --listen-host 0.0.0.0
+    #   --listen-port 8080
+    #   --set block_global=false
+    #   --mode upstream:http://host.docker.internal:8081
+    #   --ssl-insecure
+    #
+    # Linux only: uncomment this to make host.docker.internal work
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    depends_on:
+      - backend
+    networks:
+      - inspector-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "2000:3000"  # REST API (browser fetches data)
+      - "2002:3002"  # WebSocket for frontend (browser real-time updates)
+      # Note: WebSocket for proxy (3001) not exposed - only used internally
+    volumes:
+      - ./backend/src:/app/src:ro
+      - ./datastore:/app/datastore  # Persistent data store for rules, settings, mock data
+      - ./backend/models:/app/models  # Cache for ML models (persists across restarts)
+    environment:
+      - NODE_ENV=development
+      - PROXY_WS_PORT=3001
+      - FRONTEND_WS_PORT=3002
+      - REST_PORT=3000
+      # Max WebSocket payload size (bytes). Should be >= MAX_BODY_SIZE.
+      - WS_MAX_PAYLOAD=${WS_MAX_PAYLOAD:-209715200}  # Default: 200MB
+      # Data store and settings paths
+      - DATASTORE_PATH=/app/datastore
+      - SETTINGS_FILE_PATH=/app/datastore/settings.json
+      - RULES_FILE_PATH=/app/datastore/rules.json
+      - REFUSAL_RULES_PATH=/app/datastore/refusal-rules.json
+      # ============ Refusal Detection ML Model ============
+      # Zero-shot classification model for refusal detection (ONNX, transformers.js compatible)
+      # Options: Xenova/nli-deberta-v3-xsmall (~90MB), Xenova/nli-deberta-v3-small (~180MB), Xenova/bart-large-mnli (~1.6GB)
+      - REFUSAL_MODEL_ID=${REFUSAL_MODEL_ID:-Xenova/nli-deberta-v3-small}
+      - MODEL_CACHE_DIR=/app/models
+      # HuggingFace token (only needed if using a model that requires authentication)
+      # Get a free token at: https://huggingface.co/settings/tokens
+      # - HF_TOKEN=${HF_TOKEN:-}
+    networks:
+      - inspector-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/index.html:/app/index.html:ro
+    environment:
+      - VITE_BACKEND_URL=http://localhost:2000
+      - VITE_WS_URL=ws://localhost:2002
+    depends_on:
+      - backend
+    networks:
+      - inspector-net
+
+  # Agent container - run your LLM agents here with proxy auto-configured
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    stdin_open: true   # Keep STDIN open for interactive use
+    tty: true          # Allocate a pseudo-TTY
+    volumes:
+      # Mount certificates (read-only)
+      - ./certs:/certs:ro
+      # Mount your workspace/project directory
+      - ./workspace:/workspace
+      # Optionally mount your home directory for API keys
+      # - ~/.anthropic:/root/.anthropic:ro
+      # - ~/.openai:/root/.openai:ro
+    environment:
+      # Proxy configuration (automatically set, but can be overridden)
+      - HTTP_PROXY=http://proxy:8080
+      - HTTPS_PROXY=http://proxy:8080
+      - http_proxy=http://proxy:8080
+      - https_proxy=http://proxy:8080
+      # CA certificate paths
+      - SSL_CERT_FILE=/certs/mitmproxy-ca-cert.pem
+      - REQUESTS_CA_BUNDLE=/certs/mitmproxy-ca-cert.pem
+      - NODE_EXTRA_CA_CERTS=/certs/mitmproxy-ca-cert.pem
+      - CURL_CA_BUNDLE=/certs/mitmproxy-ca-cert.pem
+      # Pass through API keys from host environment (if set)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      - proxy
+    networks:
+      - inspector-net
+    # Don't start by default - use 'docker compose run agent' or profiles
+    profiles:
+      - agent
+
+networks:
+  inspector-net:
+    driver: bridge
+
+volumes:
+  backend-models:
+    # Persists ML model cache across container restarts

@@ -1,0 +1,420 @@
+[
+  {
+    "id": "rule_1769030802713_sqf68i",
+    "name": "GET chatgpt.com/backend-api/wham/usage",
+    "enabled": true,
+    "direction": "request",
+    "priority": 0,
+    "filter": {
+      "host": {
+        "match": "exact",
+        "value": "chatgpt.com"
+      },
+      "path": {
+        "match": "exact",
+        "value": "/backend-api/wham/usage"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769046116575_dl9ic1",
+    "name": "GET en.wikipedia.org/wiki/List_of_presidents_of_th",
+    "enabled": true,
+    "direction": "response",
+    "priority": 1,
+    "filter": {
+      "host": {
+        "match": "exact",
+        "value": "en.wikipedia.org"
+      },
+      "path": {
+        "match": "exact",
+        "value": "/wiki/List_of_presidents_of_the_United_States"
+      },
+      "method": {
+        "match": "exact",
+        "value": "GET"
+      }
+    },
+    "action": {
+      "type": "modify_llm",
+      "llm_modification": {
+        "prompt": "How many rs are there in strawberry?",
+        "context": "headers_only",
+        "generation_mode": "generate_live",
+        "provider": "ollama"
+      }
+    }
+  },
+  {
+    "id": "rule_1769027108005_eguv9g225",
+    "name": "Replace president from list of presidents wiki (Copy)",
+    "enabled": false,
+    "direction": "response",
+    "priority": 2,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "wikipedia"
+      },
+      "path": {
+        "match": "contains",
+        "value": "residents_of_the"
+      }
+    },
+    "action": {
+      "type": "modify_llm",
+      "llm_modification": {
+        "prompt": "Telll me a joke",
+        "context": "body_only",
+        "generation_mode": "generate_once",
+        "provider": "ollama"
+      }
+    }
+  },
+  {
+    "id": "rule_1769023715779_4yzzt6",
+    "name": "Replace president from list of presidents wiki",
+    "enabled": false,
+    "direction": "response",
+    "priority": 3,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "en.wikipedia.org"
+      },
+      "path": {
+        "match": "contains",
+        "value": "residents_of_the"
+      }
+    },
+    "action": {
+      "type": "serve_from_store",
+      "store_key": "en.wikipedia.org_wiki_List_of_presidents_of_the_Un",
+      "store_key_mode": "single"
+    }
+  },
+  {
+    "id": "rule_1769030809703_cacdcg",
+    "name": "GET chatgpt.com/backend-api/wham/usage",
+    "enabled": true,
+    "direction": "response",
+    "priority": 4,
+    "filter": {
+      "host": {
+        "match": "exact",
+        "value": "chatgpt.com"
+      },
+      "path": {
+        "match": "exact",
+        "value": "/backend-api/wham/usage"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769027694968_kqygl1she",
+    "name": "Rule for example.com",
+    "enabled": false,
+    "direction": "response",
+    "priority": 5,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "example.com"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/"
+      }
+    },
+    "action": {
+      "type": "serve_from_store",
+      "store_key": "chat_response_1769027812063",
+      "store_key_mode": "single"
+    }
+  },
+  {
+    "id": "rule_1769081678769_z7b2kt",
+    "name": "GET chatgpt.com/backend-api/wham/usage",
+    "enabled": false,
+    "direction": "response",
+    "priority": 100,
+    "filter": {
+      "host": {
+        "match": "exact",
+        "value": "chatgpt.com"
+      },
+      "path": {
+        "match": "exact",
+        "value": "/backend-api/wham/usage"
+      },
+      "method": {
+        "match": "exact",
+        "value": "GET"
+      },
+      "is_llm_api": true
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769081686197_l1wiok",
+    "name": "GET chatgpt.com/backend-api/wham/usage",
+    "enabled": false,
+    "direction": "request",
+    "priority": 100,
+    "filter": {
+      "host": {
+        "match": "exact",
+        "value": "chatgpt.com"
+      },
+      "path": {
+        "match": "exact",
+        "value": "/backend-api/wham/usage"
+      },
+      "method": {
+        "match": "exact",
+        "value": "GET"
+      },
+      "is_llm_api": true
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769081742115_f602rplht",
+    "name": "Rule for ab.chatgpt.com",
+    "enabled": true,
+    "direction": "request",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "ab.chatgpt.com"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/otlp/v1/metrics"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769088805703_ai36njemc",
+    "name": "Rule for github.com",
+    "enabled": true,
+    "direction": "response",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "github.com"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769088814829_p48937cg1",
+    "name": "Rule for statsig.anthropic.com",
+    "enabled": true,
+    "direction": "response",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "statsig.anthropic.com"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769088880516_o45pvladu",
+    "name": "Rule for api.anthropic.com",
+    "enabled": true,
+    "direction": "request",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "api.anthropic.com"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/api/event_logging/batch"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769088909949_118luv8q4",
+    "name": "Rule for api.anthropic.com",
+    "enabled": true,
+    "direction": "response",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "api.anthropic.com"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/api/event_logging/batch"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769088967642_wxj8l0vvg",
+    "name": "Rule for statsig.anthropic.com",
+    "enabled": true,
+    "direction": "request",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "statsig.anthropic.com"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769089018390_sgnztbtii",
+    "name": "Rule for api.anthropic.com",
+    "enabled": true,
+    "direction": "request",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "api.anthropic.com"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/api/hello"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769089070357_1kxvv7479",
+    "name": "Rule for api.anthropic.com",
+    "enabled": true,
+    "direction": "response",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "api.anthropic.com"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/api/hello"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769089141320_9dtji6hnb",
+    "name": "Rule for http-intake.logs.us5.datadoghq.com",
+    "enabled": true,
+    "direction": "request",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "http-intake.logs.us5.datadoghq.com"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/api/v2/logs"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769089160879_f2901rwlg",
+    "name": "Rule for http-intake.logs.us5.datadoghq.com",
+    "enabled": true,
+    "direction": "response",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "http-intake.logs.us5.datadoghq.com"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/api/v2/logs"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769093794111_m6ue8fr7z",
+    "name": "Rule for registry.npmjs.org",
+    "enabled": true,
+    "direction": "request",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "registry.npmjs.org"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/@anthropic-ai%2fclaude-code"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  },
+  {
+    "id": "rule_1769093882369_fqxhtg29v",
+    "name": "Rule for registry.npmjs.org",
+    "enabled": true,
+    "direction": "response",
+    "priority": 999,
+    "filter": {
+      "host": {
+        "match": "contains",
+        "value": "registry.npmjs.org"
+      },
+      "path": {
+        "match": "contains",
+        "value": "/@anthropic-ai%2fclaude-code"
+      }
+    },
+    "action": {
+      "type": "passthrough"
+    }
+  }
+]

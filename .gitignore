@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+*.js.map
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Settings (contains API keys)
+datastore/settings.json
+
+# Certificates (sensitive)
+certs/
+
+# Workspace (user projects)
+workspace/*
+!workspace/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.venv/
+venv/
+
+# Misc
+*.bak
+*.tmp
