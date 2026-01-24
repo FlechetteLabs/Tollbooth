@@ -289,6 +289,7 @@ export function RulesView() {
       setShowEditor(false);
       setEditingRule(null);
       fetchRules();
+      fetchValidStoreKeys(); // Refresh datastore keys for validation
     } catch (err: any) {
       throw err; // Let the editor handle the error
     }
@@ -515,7 +516,7 @@ export function RulesView() {
                 />
               </label>
               <button
-                onClick={fetchRules}
+                onClick={() => { fetchRules(); fetchValidStoreKeys(); }}
                 className="text-sm px-3 py-1 rounded bg-inspector-bg hover:bg-inspector-border text-inspector-muted"
                 data-testid="rules-refresh-btn"
               >

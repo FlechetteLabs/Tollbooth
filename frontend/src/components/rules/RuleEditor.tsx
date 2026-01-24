@@ -2,7 +2,7 @@
  * Rule Editor - create/edit rules in a modal
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { clsx } from 'clsx';
 import {
   Rule,
@@ -48,25 +48,34 @@ function DatastoreKeySelector({ value, onChange, direction }: DatastoreKeySelect
   const listRef = useRef<HTMLDivElement>(null);
 
   // Fetch datastore items
-  useEffect(() => {
-    const fetchItems = async () => {
-      setLoading(true);
-      try {
-        // For response rules, fetch responses; for request rules, fetch requests
-        const endpoint = direction === 'response' ? 'responses' : 'requests';
-        const res = await fetch(`${API_BASE}/api/datastore/${endpoint}`);
-        if (res.ok) {
-          const data = await res.json();
-          setItems(data.items || []);
-        }
-      } catch (err) {
-        console.error('Failed to fetch datastore items:', err);
-      } finally {
-        setLoading(false);
+  const fetchItems = useCallback(async () => {
+    setLoading(true);
+    try {
+      // For response rules, fetch responses; for request rules, fetch requests
+      const endpoint = direction === 'response' ? 'responses' : 'requests';
+      const res = await fetch(`${API_BASE}/api/datastore/${endpoint}`);
+      if (res.ok) {
+        const data = await res.json();
+        setItems(data.items || []);
       }
-    };
-    fetchItems();
+    } catch (err) {
+      console.error('Failed to fetch datastore items:', err);
+    } finally {
+      setLoading(false);
+    }
   }, [direction]);
+
+  // Fetch on mount and direction change
+  useEffect(() => {
+    fetchItems();
+  }, [fetchItems]);
+
+  // Refresh when dropdown opens
+  useEffect(() => {
+    if (isOpen) {
+      fetchItems();
+    }
+  }, [isOpen, fetchItems]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -160,28 +169,46 @@ function DatastoreKeySelector({ value, onChange, direction }: DatastoreKeySelect
 
   return (
     <div className="relative" ref={dropdownRef} data-testid="datastore-key-selector">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => {
-          setIsOpen(!isOpen);
-          if (isOpen) setExpandedKey(null);
-        }}
-        onKeyDown={handleKeyDown}
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
-        aria-controls={isOpen ? listboxId : undefined}
-        aria-label="Select datastore key"
-        data-testid="datastore-key-trigger"
-        className="w-full bg-inspector-bg border border-inspector-border rounded px-3 py-2 text-left text-inspector-text font-mono flex items-center justify-between focus:outline-none focus:border-inspector-accent"
-      >
-        <span className={clsx(!value && 'text-inspector-muted')}>
-          {value || 'Select a datastore key...'}
-        </span>
-        <svg className={clsx('w-4 h-4 transition-transform', isOpen && 'rotate-180')} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+      <div className="flex gap-2">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => {
+            setIsOpen(!isOpen);
+            if (isOpen) setExpandedKey(null);
+          }}
+          onKeyDown={handleKeyDown}
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          aria-controls={isOpen ? listboxId : undefined}
+          aria-label="Select datastore key"
+          data-testid="datastore-key-trigger"
+          className="flex-1 bg-inspector-bg border border-inspector-border rounded px-3 py-2 text-left text-inspector-text font-mono flex items-center justify-between focus:outline-none focus:border-inspector-accent"
+        >
+          <span className={clsx(!value && 'text-inspector-muted')}>
+            {value || 'Select a datastore key...'}
+          </span>
+          <svg className={clsx('w-4 h-4 transition-transform', isOpen && 'rotate-180')} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            fetchItems();
+          }}
+          disabled={loading}
+          className="px-3 py-2 bg-inspector-bg border border-inspector-border rounded text-inspector-muted hover:text-inspector-text hover:bg-inspector-border focus:outline-none focus:border-inspector-accent disabled:opacity-50 transition-colors"
+          title="Refresh datastore list"
+          aria-label="Refresh datastore list"
+          data-testid="datastore-key-refresh"
+        >
+          <svg className={clsx('w-4 h-4', loading && 'animate-spin')} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </div>
 
       {isOpen && (
         <div
