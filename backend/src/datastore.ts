@@ -7,6 +7,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { StoredResponse, StoredRequest } from './types';
+import { shortIdRegistry } from './short-id-registry';
 
 export class DataStore {
   private basePath: string;
@@ -27,14 +28,51 @@ export class DataStore {
     await fs.mkdir(this.requestsPath, { recursive: true });
   }
 
+  /**
+   * Initialize short ID registry from existing entries and assign IDs to entries without them
+   */
+  async initializeShortIds(): Promise<void> {
+    // Load all existing items and collect their shortIds
+    const responses = await this.getAllResponses();
+    const requests = await this.getAllRequests();
+
+    // Initialize registry with existing shortIds
+    shortIdRegistry.initializeFromExisting({
+      responses: responses.map(r => ({ key: r.key, shortId: r.data.metadata.shortId })),
+      requests: requests.map(r => ({ key: r.key, shortId: r.data.metadata.shortId })),
+    });
+
+    // Assign shortIds to any items that don't have them
+    for (const resp of responses) {
+      if (!resp.data.metadata.shortId) {
+        resp.data.metadata.shortId = shortIdRegistry.assignDatastoreResponseShortId(resp.key);
+        await this.saveResponse(resp.key, resp.data);
+        console.log(`[DataStore] Assigned shortId ${resp.data.metadata.shortId} to response ${resp.key}`);
+      }
+    }
+
+    for (const req of requests) {
+      if (!req.data.metadata.shortId) {
+        req.data.metadata.shortId = shortIdRegistry.assignDatastoreRequestShortId(req.key);
+        await this.saveRequest(req.key, req.data);
+        console.log(`[DataStore] Assigned shortId ${req.data.metadata.shortId} to request ${req.key}`);
+      }
+    }
+  }
+
   // ============ Response Operations ============
 
   /**
    * Save a response to the store
    */
-  async saveResponse(key: string, data: StoredResponse): Promise<void> {
+  async saveResponse(key: string, data: StoredResponse): Promise<StoredResponse> {
+    // Assign shortId if not present
+    if (!data.metadata.shortId) {
+      data.metadata.shortId = shortIdRegistry.assignDatastoreResponseShortId(key);
+    }
     const filePath = this.getResponsePath(key);
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    return data;
   }
 
   /**
@@ -77,6 +115,8 @@ export class DataStore {
     const filePath = this.getResponsePath(key);
     try {
       await fs.unlink(filePath);
+      // Remove from registry (shortId will never be reused)
+      shortIdRegistry.removeMapping(key);
       return true;
     } catch (err: any) {
       if (err.code === 'ENOENT') {
@@ -108,9 +148,14 @@ export class DataStore {
   /**
    * Save a request to the store
    */
-  async saveRequest(key: string, data: StoredRequest): Promise<void> {
+  async saveRequest(key: string, data: StoredRequest): Promise<StoredRequest> {
+    // Assign shortId if not present
+    if (!data.metadata.shortId) {
+      data.metadata.shortId = shortIdRegistry.assignDatastoreRequestShortId(key);
+    }
     const filePath = this.getRequestPath(key);
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    return data;
   }
 
   /**
@@ -153,6 +198,8 @@ export class DataStore {
     const filePath = this.getRequestPath(key);
     try {
       await fs.unlink(filePath);
+      // Remove from registry (shortId will never be reused)
+      shortIdRegistry.removeMapping(key);
       return true;
     } catch (err: any) {
       if (err.code === 'ENOENT') {

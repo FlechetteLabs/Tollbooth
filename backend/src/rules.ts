@@ -8,6 +8,10 @@ import {
   Rule,
   RuleDirection,
   RuleFilter,
+  RuleFilterV2,
+  FilterCondition,
+  FilterGroup,
+  FilterOperator,
   RuleMatch,
   RuleActionType,
   MatchType,
@@ -15,6 +19,7 @@ import {
   StaticModification,
   HeaderModification,
 } from './types';
+import { shortIdRegistry } from './short-id-registry';
 
 export class RulesEngine extends EventEmitter {
   private rules: Rule[] = [];
@@ -36,6 +41,26 @@ export class RulesEngine extends EventEmitter {
       this.sortByPriority();
       this.loaded = true;
       console.log(`Loaded ${this.rules.length} rules from ${this.rulesFilePath}`);
+
+      // Initialize registry with existing shortIds
+      shortIdRegistry.initializeFromExisting({
+        rules: this.rules.map(r => ({ id: r.id, shortId: r.shortId })),
+      });
+
+      // Assign shortIds to any rules that don't have them
+      let needsSave = false;
+      for (const rule of this.rules) {
+        if (!rule.shortId) {
+          rule.shortId = shortIdRegistry.assignRuleShortId(rule.id);
+          needsSave = true;
+        }
+      }
+
+      // Save if we assigned any new shortIds
+      if (needsSave) {
+        await this.saveRules();
+        console.log(`[RulesEngine] Assigned shortIds to rules without them`);
+      }
     } catch (err: any) {
       if (err.code === 'ENOENT') {
         // File doesn't exist yet, start with empty rules
@@ -65,6 +90,10 @@ export class RulesEngine extends EventEmitter {
     if (this.rules.some(r => r.id === rule.id)) {
       throw new Error(`Rule with ID ${rule.id} already exists`);
     }
+    // Assign permanent shortId if not already set
+    if (!rule.shortId) {
+      rule.shortId = shortIdRegistry.assignRuleShortId(rule.id);
+    }
     this.rules.push(rule);
     this.sortByPriority();
   }
@@ -77,7 +106,8 @@ export class RulesEngine extends EventEmitter {
     if (index === -1) {
       throw new Error(`Rule with ID ${id} not found`);
     }
-    this.rules[index] = { ...this.rules[index], ...updates, id }; // Preserve ID
+    const existingShortId = this.rules[index].shortId;
+    this.rules[index] = { ...this.rules[index], ...updates, id, shortId: existingShortId }; // Preserve ID and shortId
     this.sortByPriority();
   }
 
@@ -89,6 +119,8 @@ export class RulesEngine extends EventEmitter {
     if (index === -1) {
       return false;
     }
+    // Remove from registry (shortId will never be reused)
+    shortIdRegistry.removeMapping(id);
     this.rules.splice(index, 1);
     return true;
   }
@@ -380,7 +412,12 @@ export class RulesEngine extends EventEmitter {
     );
 
     for (const rule of applicableRules) {
-      if (this.matchesFilter(flow, rule.filter)) {
+      // Use filterV2 if present, otherwise fall back to legacy filter
+      const matches = rule.filterV2
+        ? this.matchesFilterV2(flow, rule.filterV2)
+        : this.matchesFilter(flow, rule.filter);
+
+      if (matches) {
         return {
           rule,
           action: rule.action.type,
@@ -496,6 +533,149 @@ export class RulesEngine extends EventEmitter {
     }
 
     return true;
+  }
+
+  /**
+   * Match against a V2 filter (with AND/OR logic)
+   */
+  private matchesFilterV2(flow: TrafficFlow, filter: RuleFilterV2): boolean {
+    if (!filter.groups || filter.groups.length === 0) {
+      return true; // No groups = match all
+    }
+
+    const groupResults = filter.groups.map(group => this.evaluateGroup(flow, group));
+
+    // Combine group results with top-level operator
+    if (filter.operator === 'AND') {
+      return groupResults.every(result => result);
+    } else {
+      return groupResults.some(result => result);
+    }
+  }
+
+  /**
+   * Evaluate a filter group
+   */
+  private evaluateGroup(flow: TrafficFlow, group: FilterGroup): boolean {
+    if (!group.conditions || group.conditions.length === 0) {
+      return true; // No conditions = match
+    }
+
+    const conditionResults = group.conditions.map(cond => this.evaluateCondition(flow, cond));
+
+    // Combine condition results with group operator
+    if (group.operator === 'AND') {
+      return conditionResults.every(result => result);
+    } else {
+      return conditionResults.some(result => result);
+    }
+  }
+
+  /**
+   * Evaluate a single filter condition
+   */
+  private evaluateCondition(flow: TrafficFlow, condition: FilterCondition): boolean {
+    const { request, response } = flow;
+    let result = false;
+
+    switch (condition.field) {
+      case 'host':
+        result = this.matchValue(
+          request.host,
+          condition.match || 'contains',
+          condition.value || ''
+        );
+        break;
+
+      case 'path':
+        result = this.matchValue(
+          request.path,
+          condition.match || 'contains',
+          condition.value || ''
+        );
+        break;
+
+      case 'method':
+        result = this.matchValue(
+          request.method,
+          condition.match || 'exact',
+          condition.value || ''
+        );
+        break;
+
+      case 'header':
+        if (condition.key) {
+          const headerValue = request.headers[condition.key] ||
+                             request.headers[condition.key.toLowerCase()] || '';
+          result = this.matchValue(
+            headerValue,
+            condition.match || 'contains',
+            condition.value || ''
+          );
+        }
+        break;
+
+      case 'is_llm_api':
+        result = flow.is_llm_api === (condition.boolValue ?? true);
+        break;
+
+      case 'status_code':
+        if (response) {
+          const statusMatch = condition.statusMatch || 'exact';
+          result = this.matchStatusCode(response.status_code, {
+            match: statusMatch,
+            value: condition.value || ''
+          });
+        }
+        break;
+
+      case 'response_body_contains':
+        if (response && response.content) {
+          if (condition.match === 'regex') {
+            try {
+              const regex = new RegExp(condition.value || '');
+              result = regex.test(response.content);
+            } catch {
+              result = false;
+            }
+          } else {
+            result = response.content.includes(condition.value || '');
+          }
+        }
+        break;
+
+      case 'response_header':
+        if (response && condition.key) {
+          const headerValue = response.headers[condition.key] ||
+                             response.headers[condition.key.toLowerCase()] || '';
+          result = this.matchValue(
+            headerValue,
+            condition.match || 'contains',
+            condition.value || ''
+          );
+        }
+        break;
+
+      case 'response_size':
+        if (response && response.content) {
+          const size = response.content.length;
+          const bytes = condition.sizeBytes || 0;
+          switch (condition.sizeOperator) {
+            case 'gt': result = size > bytes; break;
+            case 'lt': result = size < bytes; break;
+            case 'gte': result = size >= bytes; break;
+            case 'lte': result = size <= bytes; break;
+            default: result = false;
+          }
+        }
+        break;
+
+      default:
+        result = false;
+    }
+
+    // Apply negation if needed
+    return condition.negate ? !result : result;
   }
 
   /**

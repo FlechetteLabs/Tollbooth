@@ -115,6 +115,10 @@ export interface TrafficFlow {
   response_modified_by_rule?: RuleReference;
   // Refusal detection metadata
   refusal?: RefusalMetadata;
+  // Hidden/visibility state
+  hidden?: boolean;
+  hidden_at?: number;
+  hidden_by_rule?: RuleReference;
 }
 
 export type InterceptMode = 'passthrough' | 'intercept_llm' | 'intercept_all';
@@ -161,6 +165,26 @@ export interface URLLogEntry {
 
 export type View = 'traffic' | 'conversations' | 'intercept' | 'refusals' | 'data-store' | 'rules' | 'chat' | 'settings';
 
+// ============ Traffic Filtering Types ============
+
+export interface TrafficFilters {
+  domain?: string;
+  method?: string;
+  llmOnly?: boolean;
+  searchText?: string;
+  statusCode?: string;
+  provider?: LLMProvider;
+  hasRefusal?: boolean;
+  isModified?: boolean;
+  showHidden?: boolean;
+}
+
+export interface TrafficFilterPreset {
+  id: string;
+  name: string;
+  filters: TrafficFilters;
+}
+
 // ============ Data Store Types ============
 
 export interface StoredResponseMetadata {
@@ -191,13 +215,14 @@ export interface StoredRequest {
 export interface StoredItem<T> {
   key: string;
   data: T;
+  shortId?: string;  // Sequential short ID (ds1, rq1, ...)
 }
 
 // ============ Rules Engine Types ============
 
 export type RuleDirection = 'request' | 'response';
 export type MatchType = 'exact' | 'contains' | 'regex';
-export type RuleActionType = 'passthrough' | 'intercept' | 'serve_from_store' | 'modify_static' | 'modify_llm';
+export type RuleActionType = 'passthrough' | 'intercept' | 'serve_from_store' | 'modify_static' | 'modify_llm' | 'auto_hide' | 'auto_clear';
 
 export interface MatchCondition {
   match: MatchType;
@@ -240,6 +265,44 @@ export interface RuleFilter {
     value: string;
   };
   response_size?: ResponseSizeCondition;
+}
+
+// ============ AND/OR Filter Types (V2) ============
+
+export type FilterOperator = 'AND' | 'OR';
+
+export type FilterConditionField =
+  | 'host'
+  | 'path'
+  | 'method'
+  | 'header'
+  | 'is_llm_api'
+  | 'status_code'
+  | 'response_body_contains'
+  | 'response_header'
+  | 'response_size';
+
+export interface FilterCondition {
+  field: FilterConditionField;
+  match?: MatchType;
+  value?: string;
+  key?: string;
+  boolValue?: boolean;
+  statusMatch?: StatusCodeMatch;
+  sizeOperator?: 'gt' | 'lt' | 'gte' | 'lte';
+  sizeBytes?: number;
+  negate?: boolean;
+}
+
+export interface FilterGroup {
+  id: string;
+  operator: FilterOperator;
+  conditions: FilterCondition[];
+}
+
+export interface RuleFilterV2 {
+  operator: FilterOperator;
+  groups: FilterGroup[];
 }
 
 export interface FindReplaceEntry {
@@ -318,8 +381,10 @@ export interface Rule {
   enabled: boolean;
   direction: RuleDirection;
   priority: number;
-  filter: RuleFilter;
+  filter: RuleFilter;        // Legacy filter (backwards compat)
+  filterV2?: RuleFilterV2;   // New grouped filter (takes precedence if present)
   action: RuleAction;
+  shortId?: string;  // Sequential short ID (r1, r2, ...)
 }
 
 // ============ Settings Types ============

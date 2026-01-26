@@ -746,9 +746,9 @@ function RuleRow({
           </svg>
         </div>
 
-        {/* Priority number */}
-        <span className="text-xs text-inspector-muted w-6 text-center">
-          #{index + 1}
+        {/* Short ID */}
+        <span className="text-xs text-inspector-accent font-mono w-8">
+          {rule.shortId || `r${index + 1}`}
         </span>
 
         {/* Enable toggle */}

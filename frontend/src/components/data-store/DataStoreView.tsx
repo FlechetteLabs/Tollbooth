@@ -465,6 +465,12 @@ function ItemRow({ item, isSelected, onClick, onEdit, onDuplicate, onDelete, typ
       <div className="flex items-center justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
+            {/* Short ID */}
+            {item.shortId && (
+              <span className="text-xs text-inspector-accent font-mono w-10 flex-shrink-0">
+                {item.shortId}
+              </span>
+            )}
             <span className="font-mono text-sm truncate text-inspector-text">
               {item.key}
             </span>
@@ -563,9 +569,16 @@ function DetailPanel({ item, type, usedByRules, onTransform }: DetailPanelProps)
     <div className="p-4 space-y-4">
       {/* Key and metadata */}
       <div>
-        <h2 className="text-lg font-medium text-inspector-text font-mono">
-          {item.key}
-        </h2>
+        <div className="flex items-center gap-2">
+          {item.shortId && (
+            <span className="text-sm text-inspector-accent font-mono">
+              {item.shortId}
+            </span>
+          )}
+          <h2 className="text-lg font-medium text-inspector-text font-mono">
+            {item.key}
+          </h2>
+        </div>
         {data.metadata.description && (
           <p className="text-sm text-inspector-muted mt-1">
             {data.metadata.description}
