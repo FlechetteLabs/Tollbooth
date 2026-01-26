@@ -131,6 +131,10 @@ function evaluateOnRequest(
       const isModified = flow.request_modified || flow.response_modified || false;
       return isModified === (cond.boolValue ?? true);
 
+    case 'has_any_tag':
+      const hasAnyTag = flow.tags && flow.tags.length > 0;
+      return hasAnyTag === (cond.boolValue ?? true);
+
     case 'has_tag':
       return matchTag(flow.tags, cond.match || 'contains', cond.value || '');
 
@@ -207,6 +211,10 @@ function evaluateOnResponse(
       const isModifiedResp = flow.request_modified || flow.response_modified || false;
       return isModifiedResp === (cond.boolValue ?? true);
 
+    case 'has_any_tag':
+      const hasAnyTagResp = flow.tags && flow.tags.length > 0;
+      return hasAnyTagResp === (cond.boolValue ?? true);
+
     case 'has_tag':
       return matchTag(flow.tags, cond.match || 'contains', cond.value || '');
 
@@ -216,7 +224,7 @@ function evaluateOnResponse(
 }
 
 /**
- * Match a tag against a pattern with prefix support
+ * Match a tag against a pattern
  */
 function matchTag(tags: string[] | undefined, matchType: MatchType, pattern: string): boolean {
   if (!tags || tags.length === 0) return false;
@@ -228,11 +236,8 @@ function matchTag(tags: string[] | undefined, matchType: MatchType, pattern: str
       // Exact match - tag must equal pattern exactly
       return tags.some((t) => t.toLowerCase() === patternLower);
     case 'contains':
-      // Prefix match - tag equals pattern or starts with pattern followed by :
-      return tags.some((t) => {
-        const tLower = t.toLowerCase();
-        return tLower === patternLower || tLower.startsWith(patternLower + ':');
-      });
+      // Substring match - pattern must be found within any tag
+      return tags.some((t) => t.toLowerCase().includes(patternLower));
     case 'regex':
       // Regex match against any tag
       try {
@@ -383,6 +388,8 @@ export function getConditionDescription(cond: TrafficFilterCondition): string {
       return `${negatePrefix}Has Refusal`;
     case 'is_modified':
       return `${negatePrefix}Modified`;
+    case 'has_any_tag':
+      return `${negatePrefix}Has Tags`;
     case 'has_tag':
       return `${negatePrefix}Tag ${getMatchLabel(cond.match)} "${cond.value}"`;
     default:

@@ -57,7 +57,8 @@ const fieldOptions: FieldGroup[] = [
       { value: 'is_llm_api', label: 'LLM API', scopes: ['either'], isBoolean: true },
       { value: 'has_refusal', label: 'Has Refusal', scopes: ['either'], isBoolean: true },
       { value: 'is_modified', label: 'Modified', scopes: ['either'], isBoolean: true },
-      { value: 'has_tag', label: 'Has Tag', scopes: ['either'], matchTypes: ['exact', 'contains'] },
+      { value: 'has_any_tag', label: 'Has Any Tag', scopes: ['either'], isBoolean: true },
+      { value: 'has_tag', label: 'Tag Match', scopes: ['either'], matchTypes: ['exact', 'contains'] },
     ],
   },
 ];

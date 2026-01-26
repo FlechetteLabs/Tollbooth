@@ -210,6 +210,7 @@ export type TrafficFilterField =
   | 'is_llm_api'
   | 'has_refusal'
   | 'is_modified'
+  | 'has_any_tag'
   | 'has_tag';
 
 // Extended filter condition for traffic view
