@@ -604,6 +604,26 @@ class InterceptManager extends EventEmitter {
       }
     }
 
+    // Check if this is a replay with intercept_on_replay enabled
+    // Replay traffic should be intercepted regardless of global mode
+    if (flow.replay_source) {
+      // Dynamically import to avoid circular dependency
+      const { replayManager } = await import('./replay');
+      const variant = replayManager.get(flow.replay_source.variant_id);
+      if (variant && variant.intercept_on_replay) {
+        console.log(`[InterceptManager] Replay traffic with intercept_on_replay=true, adding to queue`);
+        const pending: PendingIntercept = {
+          flow_id: flow.flow_id,
+          timestamp: Date.now(),
+          flow,
+          type: 'response',
+        };
+        storage.addPendingIntercept(pending);
+        this.emit('intercept_response', pending);
+        return;
+      }
+    }
+
     // No rule matched or rule action is 'intercept'
     // If intercept mode is passthrough (traffic only came through because of rules mode),
     // just forward without adding to queue
