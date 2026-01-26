@@ -568,6 +568,29 @@ class InterceptManager extends EventEmitter {
             this.forwardResponse(flow.flow_id);
           }
           return;
+
+        case 'auto_hide':
+          // Forward the response, then mark as hidden
+          {
+            console.log(`[InterceptManager] Auto-hiding traffic: ${flow.flow_id}`);
+            const ruleRef = { id: ruleMatch.rule.id, name: ruleMatch.rule.name };
+            storage.hideTraffic(flow.flow_id, ruleRef);
+            this.forwardResponse(flow.flow_id);
+          }
+          return;
+
+        case 'auto_clear':
+          // Forward the response, then delete from storage
+          {
+            console.log(`[InterceptManager] Auto-clearing traffic: ${flow.flow_id}`);
+            // Forward first, then delete
+            this.forwardResponse(flow.flow_id);
+            // Small delay to ensure the response is processed before deletion
+            setTimeout(() => {
+              storage.deleteTraffic(flow.flow_id);
+            }, 100);
+          }
+          return;
       }
     }
 

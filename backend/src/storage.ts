@@ -52,6 +52,66 @@ class Storage {
     return this.traffic.size;
   }
 
+  // Hide traffic (keep in storage but mark as hidden)
+  hideTraffic(flowId: string, ruleRef?: { id: string; name: string }): boolean {
+    const existing = this.traffic.get(flowId);
+    if (!existing) return false;
+    this.traffic.set(flowId, {
+      ...existing,
+      hidden: true,
+      hidden_at: Date.now(),
+      hidden_by_rule: ruleRef,
+    });
+    return true;
+  }
+
+  // Unhide traffic
+  unhideTraffic(flowId: string): boolean {
+    const existing = this.traffic.get(flowId);
+    if (!existing) return false;
+    this.traffic.set(flowId, {
+      ...existing,
+      hidden: false,
+      hidden_at: undefined,
+      hidden_by_rule: undefined,
+    });
+    return true;
+  }
+
+  // Delete traffic permanently
+  deleteTraffic(flowId: string): boolean {
+    return this.traffic.delete(flowId);
+  }
+
+  // Bulk delete traffic
+  deleteTrafficBulk(flowIds: string[]): number {
+    let deleted = 0;
+    for (const flowId of flowIds) {
+      if (this.traffic.delete(flowId)) {
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
+  // Bulk hide traffic
+  hideTrafficBulk(flowIds: string[], ruleRef?: { id: string; name: string }): number {
+    let hidden = 0;
+    for (const flowId of flowIds) {
+      if (this.hideTraffic(flowId, ruleRef)) {
+        hidden++;
+      }
+    }
+    return hidden;
+  }
+
+  // Get traffic with optional hidden filter
+  getAllTrafficFiltered(includeHidden: boolean = false): TrafficFlow[] {
+    const all = Array.from(this.traffic.values());
+    const filtered = includeHidden ? all : all.filter(f => !f.hidden);
+    return filtered.sort((a, b) => b.timestamp - a.timestamp);
+  }
+
   // URL Log methods
   addURLLogEntry(entry: URLLogEntry): void {
     this.urlLog.push(entry);

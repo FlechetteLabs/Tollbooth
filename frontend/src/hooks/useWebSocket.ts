@@ -33,6 +33,7 @@ function handleMessage(message: WSMessage) {
     initializeState,
     addTraffic,
     updateTraffic,
+    removeTraffic,
     addOrUpdateConversation,
     addPendingIntercept,
     removePendingIntercept,
@@ -102,6 +103,19 @@ function handleMessage(message: WSMessage) {
     case 'alternate_generated':
       // Update the pending refusal with the generated alternate
       // This is handled by the component that requested the generation
+      break;
+
+    // Traffic visibility messages
+    case 'traffic_deleted':
+      const deletedData = message.data as { flow_id: string };
+      removeTraffic(deletedData.flow_id);
+      break;
+
+    case 'traffic_cleared':
+      const clearedData = message.data as { flow_ids: string[]; count: number };
+      for (const flowId of clearedData.flow_ids) {
+        removeTraffic(flowId);
+      }
       break;
   }
 }

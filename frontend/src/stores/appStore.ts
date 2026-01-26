@@ -28,6 +28,7 @@ interface AppState {
   traffic: Map<string, TrafficFlow>;
   addTraffic: (flow: TrafficFlow) => void;
   updateTraffic: (flowId: string, updates: Partial<TrafficFlow>) => void;
+  removeTraffic: (flowId: string) => void;
   selectedTrafficId: string | null;
   setSelectedTrafficId: (id: string | null) => void;
 
@@ -100,6 +101,12 @@ export const useAppStore = create<AppState>((set) => ({
       if (!existing) return state;
       const newTraffic = new Map(state.traffic);
       newTraffic.set(flowId, { ...existing, ...updates });
+      return { traffic: newTraffic };
+    }),
+  removeTraffic: (flowId) =>
+    set((state) => {
+      const newTraffic = new Map(state.traffic);
+      newTraffic.delete(flowId);
       return { traffic: newTraffic };
     }),
   selectedTrafficId: null,
