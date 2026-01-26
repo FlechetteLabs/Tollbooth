@@ -204,14 +204,28 @@ export interface URLLogFilter {
 // ============ WebSocket Message Types ============
 
 export interface ProxyMessage {
-  type: 'request' | 'response' | 'stream_chunk' | 'intercept_request' | 'intercept_response' | 'request_modified';
-  data: TrafficFlow | StreamChunk | RequestModifiedData;
+  type: 'request' | 'response' | 'stream_chunk' | 'intercept_request' | 'intercept_response' | 'request_modified' | 'replay_response' | 'replay_complete';
+  data: TrafficFlow | StreamChunk | RequestModifiedData | ReplayResponseData | ReplayCompleteData;
 }
 
 export interface RequestModifiedData {
   flow_id: string;
   original_request: HttpRequest;
   modified_request: HttpRequest;
+}
+
+export interface ReplayResponseData {
+  replay_id: string;
+  variant_id: string;
+  flow_id?: string;
+  error?: string;
+}
+
+export interface ReplayCompleteData {
+  replay_id: string;
+  variant_id: string;
+  flow_id: string;
+  success: boolean;
 }
 
 export interface BackendCommand {

@@ -1486,7 +1486,7 @@ app.delete('/api/replay/:id', async (req, res) => {
   }
 });
 
-// Execute replay (send variant request)
+// Execute replay (send variant request via proxy)
 app.post('/api/replay/:id/send', async (req, res) => {
   try {
     const variant = replayManager.get(req.params.id);
@@ -1494,158 +1494,45 @@ app.post('/api/replay/:id/send', async (req, res) => {
       return res.status(404).json({ error: 'Variant not found' });
     }
 
+    // Generate a unique replay ID
+    const replayId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
     // Mark as sent
     await replayManager.markSent(variant.variant_id);
 
-    // Parse the URL
-    const url = new URL(variant.request.url);
-    const isHttps = url.protocol === 'https:';
-
-    // Generate a unique flow ID for this replay
-    const replayFlowId = `replay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    // Create the traffic flow for this replay
-    const replayFlow: TrafficFlow = {
-      flow_id: replayFlowId,
-      timestamp: Date.now() / 1000,
+    // Send replay request to proxy
+    // The proxy will make the HTTP request and send traffic through normal channels
+    const sent = interceptManager.sendReplayRequest({
+      replay_id: replayId,
+      variant_id: variant.variant_id,
+      parent_flow_id: variant.parent_flow_id,
       request: {
         method: variant.request.method,
         url: variant.request.url,
-        host: url.hostname,
-        port: url.port ? parseInt(url.port, 10) : (isHttps ? 443 : 80),
-        path: url.pathname + url.search,
         headers: variant.request.headers,
-        content: variant.request.body || null,
+        body: variant.request.body,
       },
-      is_llm_api: false, // Will be updated by parsing
-      replay_source: {
-        variant_id: variant.variant_id,
-        parent_flow_id: variant.parent_flow_id,
-      },
-    };
+      intercept_response: variant.intercept_on_replay,
+    });
 
-    // Check if it's an LLM API endpoint
-    const llmDomains = [
-      'api.anthropic.com',
-      'api.openai.com',
-      'generativelanguage.googleapis.com',
-    ];
-    if (llmDomains.some(d => url.hostname.includes(d))) {
-      replayFlow.is_llm_api = true;
-    }
-
-    // Store the request immediately
-    storage.addTraffic(replayFlow);
-    broadcastToFrontend({ type: 'traffic', data: replayFlow });
-
-    // Actually send the HTTP request
-    try {
-      const fetchOptions: RequestInit = {
-        method: variant.request.method,
-        headers: variant.request.headers,
-      };
-
-      // Add body for non-GET requests
-      if (variant.request.method !== 'GET' && variant.request.body) {
-        fetchOptions.body = variant.request.body;
-      }
-
-      const response = await fetch(variant.request.url, fetchOptions);
-
-      // Read response body
-      const responseBody = await response.text();
-
-      // Update the flow with response
-      const responseHeaders: Record<string, string> = {};
-      response.headers.forEach((value, key) => {
-        responseHeaders[key] = value;
-      });
-
-      replayFlow.response = {
-        status_code: response.status,
-        reason: response.statusText,
-        headers: responseHeaders,
-        content: responseBody,
-      };
-
-      // Parse if it's an LLM API
-      if (replayFlow.is_llm_api && replayFlow.response) {
-        const parsedReq = parseRequest(replayFlow.request);
-        if (parsedReq) {
-          replayFlow.parsed = parsedReq;
-        }
-        const parsedRes = parseResponse(replayFlow.request, replayFlow.response);
-        if (parsedRes) {
-          replayFlow.parsed = { ...replayFlow.parsed, ...parsedRes } as any;
-        }
-      }
-
-      // Update storage and broadcast
-      storage.updateTraffic(replayFlowId, {
-        response: replayFlow.response,
-        parsed: replayFlow.parsed,
-      });
-      broadcastToFrontend({ type: 'traffic', data: replayFlow });
-
-      // Check if we should intercept the response
-      if (variant.intercept_on_replay) {
-        // Add to pending intercept queue
-        const pending: PendingIntercept = {
-          flow_id: replayFlowId,
-          timestamp: Date.now(),
-          flow: replayFlow,
-          type: 'response',
-        };
-        storage.addPendingIntercept(pending);
-        broadcastToFrontend({ type: 'intercept_response', data: pending });
-
-        // Mark variant as intercepted (not completed yet)
-        await replayManager.updateResult(variant.variant_id, {
-          sent_at: variant.result?.sent_at || Date.now(),
-          result_flow_id: replayFlowId,
-          status: 'intercepted',
-        });
-
-        res.json({
-          success: true,
-          message: 'Replay sent - response intercepted',
-          variant: replayManager.get(variant.variant_id),
-          result_flow_id: replayFlowId,
-          intercepted: true,
-        });
-      } else {
-        // Mark variant as completed
-        await replayManager.markCompleted(variant.variant_id, replayFlowId);
-
-        res.json({
-          success: true,
-          message: 'Replay completed',
-          variant: replayManager.get(variant.variant_id),
-          result_flow_id: replayFlowId,
-        });
-      }
-    } catch (fetchErr: any) {
-      // Mark variant as failed
-      await replayManager.markFailed(variant.variant_id, fetchErr.message || 'Request failed');
-
-      // Update flow with error
-      replayFlow.response = {
-        status_code: 0,
-        reason: 'Error',
-        headers: {},
-        content: `Error: ${fetchErr.message}`,
-      };
-      storage.updateTraffic(replayFlowId, { response: replayFlow.response });
-      broadcastToFrontend({ type: 'traffic', data: replayFlow });
-
-      res.json({
+    if (!sent) {
+      await replayManager.markFailed(variant.variant_id, 'No proxy connection');
+      return res.status(503).json({
         success: false,
-        message: 'Replay failed',
-        error: fetchErr.message,
-        variant: replayManager.get(variant.variant_id),
-        result_flow_id: replayFlowId,
+        error: 'Proxy not connected. Make sure the proxy container is running.',
       });
     }
+
+    // Return immediately - the response will come through normal traffic channels
+    // and will be intercepted if intercept_on_replay is enabled
+    res.json({
+      success: true,
+      message: variant.intercept_on_replay
+        ? 'Replay initiated - response will be intercepted'
+        : 'Replay initiated',
+      variant: replayManager.get(variant.variant_id),
+      replay_id: replayId,
+    });
   } catch (err: any) {
     console.error('Failed to send replay:', err);
     res.status(500).json({ error: err.message || 'Failed to send replay' });
@@ -1714,6 +1601,37 @@ function handleProxyMessage(message: ProxyMessage): void {
     case 'request_modified':
       handleRequestModified(message.data as RequestModifiedData);
       break;
+    case 'replay_response':
+      handleReplayResponse(message.data as any);
+      break;
+    case 'replay_complete':
+      handleReplayComplete(message.data as any);
+      break;
+  }
+}
+
+// Handle replay error response from proxy
+function handleReplayResponse(data: { replay_id: string; variant_id: string; flow_id?: string; error?: string }): void {
+  if (data.error) {
+    console.log(`[handleReplayResponse] Replay failed: ${data.error}`);
+    replayManager.markFailed(data.variant_id, data.error);
+  }
+}
+
+// Handle replay complete notification from proxy
+async function handleReplayComplete(data: { replay_id: string; variant_id: string; flow_id: string; success: boolean }): Promise<void> {
+  console.log(`[handleReplayComplete] variant_id=${data.variant_id} flow_id=${data.flow_id} success=${data.success}`);
+
+  if (data.success) {
+    // Check if this replay was intercepted (status would be 'intercepted')
+    const variant = replayManager.get(data.variant_id);
+    if (variant?.result?.status !== 'intercepted') {
+      // Not intercepted, mark as completed
+      await replayManager.markCompleted(data.variant_id, data.flow_id);
+    }
+    // If intercepted, the status will be updated when released from intercept queue
+  } else {
+    await replayManager.markFailed(data.variant_id, 'Replay failed');
   }
 }
 

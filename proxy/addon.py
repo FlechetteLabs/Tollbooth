@@ -160,6 +160,10 @@ class TrafficInspectorAddon:
             else:
                 ctx.log.warn(f"Flow {flow_id} not in response_pending, modifications may be lost")
 
+        elif cmd == "replay_request":
+            # Initiate a replay request from the proxy
+            asyncio.create_task(self._handle_replay_request(data))
+
     async def send_to_backend(self, message: dict):
         """Send message to backend via WebSocket."""
         await self.ensure_ws_connection()
@@ -168,6 +172,178 @@ class TrafficInspectorAddon:
                 await self.ws.send(json.dumps(message))
             except Exception as e:
                 ctx.log.error(f"Failed to send to backend: {e}")
+
+    async def _handle_replay_request(self, data: dict):
+        """
+        Handle replay request command from backend.
+
+        Makes an HTTP request and sends it through the normal traffic pipeline,
+        including intercept support.
+        """
+        import httpx
+
+        replay_id = data.get("replay_id")
+        variant_id = data.get("variant_id")
+        request_data = data.get("request", {})
+        intercept_response = data.get("intercept_response", False)
+
+        method = request_data.get("method", "GET")
+        url = request_data.get("url")
+        headers = request_data.get("headers", {})
+        body = request_data.get("body")
+
+        ctx.log.info(f"Replay request: {method} {url} (intercept={intercept_response})")
+
+        if not url:
+            ctx.log.error("Replay request missing URL")
+            await self.send_to_backend({
+                "type": "replay_response",
+                "replay_id": replay_id,
+                "variant_id": variant_id,
+                "error": "Missing URL",
+            })
+            return
+
+        # Generate a flow ID for this replay
+        flow_id = f"replay_{replay_id}"
+
+        # Build request data structure
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            host = parsed.hostname or ""
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            path = parsed.path or "/"
+            if parsed.query:
+                path += "?" + parsed.query
+        except Exception as e:
+            ctx.log.error(f"Failed to parse URL: {e}")
+            await self.send_to_backend({
+                "type": "replay_response",
+                "replay_id": replay_id,
+                "variant_id": variant_id,
+                "error": f"Invalid URL: {e}",
+            })
+            return
+
+        is_llm = self.is_llm_api(host)
+
+        # Send request info to backend
+        request_info = {
+            "flow_id": flow_id,
+            "timestamp": time.time(),
+            "request": {
+                "method": method,
+                "url": url,
+                "host": host,
+                "port": port,
+                "path": path,
+                "headers": headers,
+                "content": body,
+            },
+            "is_llm_api": is_llm,
+            "replay_source": {
+                "variant_id": variant_id,
+                "parent_flow_id": data.get("parent_flow_id"),
+            },
+        }
+
+        await self.send_to_backend({
+            "type": "request",
+            "data": request_info,
+        })
+
+        # Make the actual HTTP request
+        try:
+            async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    content=body.encode() if body else None,
+                )
+
+                response_content = response.text
+                response_headers = dict(response.headers)
+
+                ctx.log.info(f"Replay response: {response.status_code} for {url}")
+
+        except Exception as e:
+            ctx.log.error(f"Replay request failed: {e}")
+            await self.send_to_backend({
+                "type": "replay_response",
+                "replay_id": replay_id,
+                "variant_id": variant_id,
+                "flow_id": flow_id,
+                "error": str(e),
+            })
+            return
+
+        # Build response info
+        response_info = {
+            "flow_id": flow_id,
+            "timestamp": time.time(),
+            "request": request_info["request"],
+            "response": {
+                "status_code": response.status_code,
+                "reason": response.reason_phrase or "",
+                "headers": response_headers,
+                "content": response_content,
+            },
+            "is_llm_api": is_llm,
+            "replay_source": request_info["replay_source"],
+        }
+
+        # Check if we should intercept this response
+        if intercept_response:
+            # Create event for intercept wait
+            event = asyncio.Event()
+            self.response_pending[flow_id] = event
+
+            ctx.log.info(f"Intercepting replay response for {flow_id}")
+
+            # Notify backend that this response is being intercepted
+            await self.send_to_backend({
+                "type": "intercept_response",
+                "data": response_info,
+            })
+
+            # Wait for backend decision
+            try:
+                await asyncio.wait_for(event.wait(), timeout=300)  # 5 minute timeout
+                ctx.log.info(f"Replay response intercept released for {flow_id}")
+            except asyncio.TimeoutError:
+                ctx.log.warn(f"Replay response intercept timeout for {flow_id}")
+            finally:
+                self.response_pending.pop(flow_id, None)
+
+            # Apply modifications if any
+            if flow_id in self.response_modifications:
+                mods = self.response_modifications.pop(flow_id)
+                if "body" in mods:
+                    response_info["response"]["content"] = mods["body"]
+                    response_info["response_modified"] = True
+                if "status_code" in mods:
+                    response_info["response"]["status_code"] = mods["status_code"]
+                    response_info["response_modified"] = True
+                if "headers" in mods:
+                    response_info["response"]["headers"].update(mods["headers"])
+                    response_info["response_modified"] = True
+
+        # Send final response to backend
+        await self.send_to_backend({
+            "type": "response",
+            "data": response_info,
+        })
+
+        # Send replay completion notification
+        await self.send_to_backend({
+            "type": "replay_complete",
+            "replay_id": replay_id,
+            "variant_id": variant_id,
+            "flow_id": flow_id,
+            "success": True,
+        })
 
     def should_intercept(self, host: str) -> bool:
         """Determine if request should be intercepted based on mode."""

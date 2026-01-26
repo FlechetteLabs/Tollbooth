@@ -28,7 +28,7 @@
   {
     "id": "rule_1769030802713_sqf68i",
     "name": "GET chatgpt.com/backend-api/wham/usage",
-    "enabled": true,
+    "enabled": false,
     "direction": "request",
     "priority": 1,
     "filter": {
@@ -221,7 +221,7 @@
   {
     "id": "rule_1769030809703_cacdcg",
     "name": "GET chatgpt.com/backend-api/wham/usage",
-    "enabled": true,
+    "enabled": false,
     "direction": "response",
     "priority": 10,
     "filter": {
@@ -265,7 +265,7 @@
   {
     "id": "rule_1769046116575_dl9ic1",
     "name": "GET en.wikipedia.org/wiki/List_of_presidents_of_th",
-    "enabled": true,
+    "enabled": false,
     "direction": "response",
     "priority": 12,
     "filter": {
@@ -322,7 +322,7 @@
   {
     "id": "rule_1769088805703_ai36njemc",
     "name": "Rule for github.com",
-    "enabled": true,
+    "enabled": false,
     "direction": "response",
     "priority": 14,
     "filter": {
@@ -339,7 +339,7 @@
   {
     "id": "rule_1769088814829_p48937cg1",
     "name": "Rule for statsig.anthropic.com",
-    "enabled": true,
+    "enabled": false,
     "direction": "response",
     "priority": 15,
     "filter": {
@@ -356,7 +356,7 @@
   {
     "id": "rule_1769088909949_118luv8q4",
     "name": "Rule for api.anthropic.com",
-    "enabled": true,
+    "enabled": false,
     "direction": "response",
     "priority": 16,
     "filter": {
@@ -377,7 +377,7 @@
   {
     "id": "rule_1769089070357_1kxvv7479",
     "name": "Rule for api.anthropic.com",
-    "enabled": true,
+    "enabled": false,
     "direction": "response",
     "priority": 17,
     "filter": {
@@ -398,7 +398,7 @@
   {
     "id": "rule_1769089160879_f2901rwlg",
     "name": "Rule for http-intake.logs.us5.datadoghq.com",
-    "enabled": true,
+    "enabled": false,
     "direction": "response",
     "priority": 18,
     "filter": {
@@ -419,7 +419,7 @@
   {
     "id": "rule_1769093882369_fqxhtg29v",
     "name": "Rule for registry.npmjs.org",
-    "enabled": true,
+    "enabled": false,
     "direction": "response",
     "priority": 19,
     "filter": {

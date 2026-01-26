@@ -801,6 +801,36 @@ class InterceptManager extends EventEmitter {
   }
 
   /**
+   * Send a replay request to the proxy
+   * The proxy will make the HTTP request and send the traffic back through normal channels
+   */
+  sendReplayRequest(data: {
+    replay_id: string;
+    variant_id: string;
+    parent_flow_id: string;
+    request: {
+      method: string;
+      url: string;
+      headers: Record<string, string>;
+      body?: string;
+    };
+    intercept_response: boolean;
+  }): boolean {
+    if (!this.proxyWs) {
+      console.error('[InterceptManager] Cannot send replay request: no proxy connection');
+      return false;
+    }
+
+    const message = JSON.stringify({
+      cmd: 'replay_request',
+      ...data,
+    });
+    this.proxyWs.send(message);
+    console.log(`[InterceptManager] Sent replay request: ${data.request.method} ${data.request.url}`);
+    return true;
+  }
+
+  /**
    * Check for timed out intercepts (5 minute timeout)
    */
   checkTimeouts(): string[] {
