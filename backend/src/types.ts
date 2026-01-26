@@ -48,6 +48,10 @@ export interface TrafficFlow {
   hidden?: boolean;
   hidden_at?: number;
   hidden_by_rule?: RuleReference;
+  // Annotation reference
+  annotation_id?: string;
+  // Replay source (if this flow was created from a replay)
+  replay_source?: { variant_id: string; parent_flow_id: string };
 }
 
 // ============ Intercept Types ============
@@ -528,4 +532,44 @@ export interface RefusalMetadata {
   action_taken: RefusalAction;
   original_content?: string;
   was_modified: boolean;
+}
+
+// ============ Annotation Types ============
+
+export type AnnotationTargetType = 'traffic' | 'variant' | 'conversation';
+
+export interface Annotation {
+  id: string;
+  target_type: AnnotationTargetType;
+  target_id: string;
+  title: string;
+  body?: string;
+  tags: string[];  // e.g., ["refusal:soft", "test"]
+  created_at: number;
+  updated_at: number;
+}
+
+// ============ Replay Types ============
+
+export type ReplayStatus = 'pending' | 'sent' | 'intercepted' | 'completed' | 'failed';
+
+export interface ReplayVariant {
+  variant_id: string;
+  parent_flow_id: string;
+  parent_variant_id?: string;  // For chained variants
+  request: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body: string;
+  };
+  description: string;
+  created_at: number;
+  intercept_on_replay: boolean;
+  result?: {
+    sent_at: number;
+    result_flow_id?: string;
+    status: ReplayStatus;
+    error?: string;
+  };
 }
