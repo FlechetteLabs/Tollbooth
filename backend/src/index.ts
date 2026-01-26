@@ -1344,6 +1344,11 @@ app.post('/api/annotations', async (req, res) => {
         annotation_id: annotation.id,
         tags: annotation.tags,
       });
+      // Broadcast updated flow to frontend
+      const updatedFlow = storage.getTraffic(target_id);
+      if (updatedFlow) {
+        broadcastToFrontend({ type: 'traffic', data: updatedFlow });
+      }
     }
 
     res.json({ success: true, annotation });
@@ -1368,6 +1373,11 @@ app.put('/api/annotations/:id', async (req, res) => {
       storage.updateTraffic(annotation.target_id, {
         tags: annotation.tags,
       });
+      // Broadcast updated flow to frontend
+      const updatedFlow = storage.getTraffic(annotation.target_id);
+      if (updatedFlow) {
+        broadcastToFrontend({ type: 'traffic', data: updatedFlow });
+      }
     }
 
     res.json({ success: true, annotation });
@@ -1394,6 +1404,11 @@ app.delete('/api/annotations/:id', async (req, res) => {
         annotation_id: undefined,
         tags: undefined,
       });
+      // Broadcast updated flow to frontend
+      const updatedFlow = storage.getTraffic(annotation.target_id);
+      if (updatedFlow) {
+        broadcastToFrontend({ type: 'traffic', data: updatedFlow });
+      }
     }
 
     res.json({ success: true });
