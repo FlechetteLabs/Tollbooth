@@ -52,8 +52,24 @@ services:
       # Note: WebSocket for proxy (3001) not exposed - only used internally
     volumes:
       - ./backend/src:/app/src:ro
-      - ./datastore:/app/datastore  # Persistent data store for rules, settings, mock data
+      - ./datastore:/app/datastore  # Legacy data store for rules, settings, mock data
       - ./backend/models:/app/models  # Cache for ML models (persists across restarts)
+      # ============ OPTIONAL: Full Data Persistence ============
+      # Uncomment to persist all data (traffic, replay, presets) across restarts:
+      # - ./tollbooth-data:/data
+      #
+      # Data structure when /data is mounted:
+      #   /data/config/    - rules, settings, presets, templates
+      #   /data/traffic/   - traffic flows with inline annotations (one file per flow)
+      #   /data/replay/    - replay variants
+      #   /data/store/     - stored responses/requests for mock rules
+      #
+      # Control which data categories are persisted with env vars:
+      #   TOLLBOOTH_PERSIST_TRAFFIC=false   - don't save traffic (default: true)
+      #   TOLLBOOTH_PERSIST_REPLAY=false    - don't save replay variants (default: true)
+      #   TOLLBOOTH_PERSIST_RULES=false     - don't save rules (default: true)
+      #   TOLLBOOTH_PERSIST_CONFIG=false    - don't save config files (default: true)
+      #   TOLLBOOTH_PERSIST_STORE=false     - don't save stored responses/requests (default: true)
     environment:
       - NODE_ENV=development
       - PROXY_WS_PORT=3001
@@ -61,11 +77,18 @@ services:
       - REST_PORT=3000
       # Max WebSocket payload size (bytes). Should be >= MAX_BODY_SIZE.
       - WS_MAX_PAYLOAD=${WS_MAX_PAYLOAD:-209715200}  # Default: 200MB
-      # Data store and settings paths
+      # Legacy data store and settings paths (used if /data not mounted)
       - DATASTORE_PATH=/app/datastore
       - SETTINGS_FILE_PATH=/app/datastore/settings.json
       - RULES_FILE_PATH=/app/datastore/rules.json
       - REFUSAL_RULES_PATH=/app/datastore/refusal-rules.json
+      # Persistence settings (only apply when /data is mounted)
+      # - TOLLBOOTH_DATA_PATH=/data
+      # - TOLLBOOTH_PERSIST_TRAFFIC=true
+      # - TOLLBOOTH_PERSIST_REPLAY=true
+      # - TOLLBOOTH_PERSIST_RULES=true
+      # - TOLLBOOTH_PERSIST_CONFIG=true
+      # - TOLLBOOTH_PERSIST_STORE=true
       # ============ Refusal Detection ML Model ============
       # Zero-shot classification model for refusal detection (ONNX, transformers.js compatible)
       # Options: Xenova/nli-deberta-v3-xsmall (~90MB), Xenova/nli-deberta-v3-small (~180MB), Xenova/bart-large-mnli (~1.6GB)

@@ -119,9 +119,9 @@ export interface TrafficFlow {
   hidden?: boolean;
   hidden_at?: number;
   hidden_by_rule?: RuleReference;
-  // Annotation reference
-  annotation_id?: string;
-  // Tags from annotation (denormalized for easy access)
+  // Inline annotation (replaces separate annotation storage)
+  annotation?: InlineAnnotation;
+  // Tags (shortcut to annotation.tags for easy access)
   tags?: string[];
   // Replay source (if this flow was created from a replay)
   replay_source?: { variant_id: string; parent_flow_id: string };
@@ -585,6 +585,16 @@ export interface RefusalMetadata {
 
 export type AnnotationTargetType = 'traffic' | 'variant' | 'conversation';
 
+// Inline annotation stored directly in traffic/variant records
+export interface InlineAnnotation {
+  title: string;
+  body?: string;
+  tags: string[];
+  created_at: number;
+  updated_at: number;
+}
+
+// Full annotation with ID and target reference (for API responses)
 export interface Annotation {
   id: string;
   target_type: AnnotationTargetType;

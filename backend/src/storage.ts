@@ -1,5 +1,8 @@
 /**
- * In-memory storage for traffic, conversations, and intercepts
+ * Storage for traffic, conversations, and intercepts
+ *
+ * Supports optional persistence to disk when /data is mounted.
+ * Uses persistence layer to handle file I/O.
  */
 
 import * as fs from 'fs';
@@ -13,8 +16,12 @@ import {
   StreamChunk,
   RefusalRule,
   PendingRefusal,
+  InlineAnnotation,
+  FilterPreset,
 } from './types';
+import { persistence } from './persistence';
 
+// Legacy paths for backwards compatibility
 const REFUSAL_RULES_FILE = process.env.REFUSAL_RULES_PATH || './datastore/refusal-rules.json';
 
 class Storage {
@@ -27,10 +34,46 @@ class Storage {
   private streamChunks: Map<string, StreamChunk[]> = new Map();
   private refusalRules: Map<string, RefusalRule> = new Map();
   private pendingRefusals: Map<string, PendingRefusal> = new Map();
+  private filterPresets: Map<string, FilterPreset> = new Map();
+  private initialized = false;
 
-  // Traffic methods
+  /**
+   * Initialize storage - load persisted data if available
+   */
+  async initialize(): Promise<void> {
+    // Initialize persistence layer first
+    await persistence.initialize();
+
+    // Load traffic from disk if persistence is enabled
+    if (persistence.isPersisted('traffic')) {
+      const flows = await persistence.loadAllTrafficFlows() as TrafficFlow[];
+      for (const flow of flows) {
+        this.traffic.set(flow.flow_id, flow);
+      }
+      console.log(`[Storage] Loaded ${this.traffic.size} traffic flows from disk`);
+    }
+
+    // Load filter presets
+    if (persistence.isPersisted('config')) {
+      const presets = await persistence.loadConfigFile<FilterPreset[]>('presets', []);
+      for (const preset of presets) {
+        this.filterPresets.set(preset.id, preset);
+      }
+      console.log(`[Storage] Loaded ${this.filterPresets.size} filter presets`);
+    }
+
+    // Load refusal rules (uses legacy path for now, will migrate)
+    this.loadRefusalRules();
+
+    this.initialized = true;
+  }
+
+  // ============ Traffic methods ============
+
   addTraffic(flow: TrafficFlow): void {
     this.traffic.set(flow.flow_id, flow);
+    // Persist to disk
+    this.persistTrafficFlow(flow);
   }
 
   getTraffic(flowId: string): TrafficFlow | undefined {
@@ -40,7 +83,10 @@ class Storage {
   updateTraffic(flowId: string, updates: Partial<TrafficFlow>): void {
     const existing = this.traffic.get(flowId);
     if (existing) {
-      this.traffic.set(flowId, { ...existing, ...updates });
+      const updated = { ...existing, ...updates };
+      this.traffic.set(flowId, updated);
+      // Persist to disk
+      this.persistTrafficFlow(updated);
     }
   }
 
@@ -56,12 +102,14 @@ class Storage {
   hideTraffic(flowId: string, ruleRef?: { id: string; name: string }): boolean {
     const existing = this.traffic.get(flowId);
     if (!existing) return false;
-    this.traffic.set(flowId, {
+    const updated = {
       ...existing,
       hidden: true,
       hidden_at: Date.now(),
       hidden_by_rule: ruleRef,
-    });
+    };
+    this.traffic.set(flowId, updated);
+    this.persistTrafficFlow(updated);
     return true;
   }
 
@@ -69,25 +117,34 @@ class Storage {
   unhideTraffic(flowId: string): boolean {
     const existing = this.traffic.get(flowId);
     if (!existing) return false;
-    this.traffic.set(flowId, {
+    const updated = {
       ...existing,
       hidden: false,
       hidden_at: undefined,
       hidden_by_rule: undefined,
-    });
+    };
+    this.traffic.set(flowId, updated);
+    this.persistTrafficFlow(updated);
     return true;
   }
 
   // Delete traffic permanently
   deleteTraffic(flowId: string): boolean {
-    return this.traffic.delete(flowId);
+    const deleted = this.traffic.delete(flowId);
+    if (deleted) {
+      // Delete from disk
+      persistence.deleteTrafficFlow(flowId).catch(err => {
+        console.error(`[Storage] Failed to delete traffic flow ${flowId}:`, err);
+      });
+    }
+    return deleted;
   }
 
   // Bulk delete traffic
   deleteTrafficBulk(flowIds: string[]): number {
     let deleted = 0;
     for (const flowId of flowIds) {
-      if (this.traffic.delete(flowId)) {
+      if (this.deleteTraffic(flowId)) {
         deleted++;
       }
     }
@@ -112,7 +169,131 @@ class Storage {
     return filtered.sort((a, b) => b.timestamp - a.timestamp);
   }
 
-  // URL Log methods
+  // ============ Annotation methods (inline in traffic) ============
+
+  /**
+   * Set or update annotation for a traffic flow
+   */
+  setTrafficAnnotation(flowId: string, annotation: InlineAnnotation | null): TrafficFlow | null {
+    const existing = this.traffic.get(flowId);
+    if (!existing) return null;
+
+    const updated: TrafficFlow = {
+      ...existing,
+      annotation: annotation || undefined,
+      tags: annotation?.tags || undefined,
+    };
+    this.traffic.set(flowId, updated);
+    this.persistTrafficFlow(updated);
+    return updated;
+  }
+
+  /**
+   * Add tags to a traffic flow, creating/updating annotation as needed
+   */
+  addTrafficTags(flowId: string, newTags: string[]): TrafficFlow | null {
+    const existing = this.traffic.get(flowId);
+    if (!existing) return null;
+
+    const now = Date.now();
+    const existingAnnotation = existing.annotation;
+
+    if (existingAnnotation) {
+      // Merge tags
+      const tagSet = new Set([...existingAnnotation.tags, ...newTags]);
+      const updated: TrafficFlow = {
+        ...existing,
+        annotation: {
+          ...existingAnnotation,
+          tags: Array.from(tagSet),
+          updated_at: now,
+        },
+        tags: Array.from(tagSet),
+      };
+      this.traffic.set(flowId, updated);
+      this.persistTrafficFlow(updated);
+      return updated;
+    } else {
+      // Create new annotation with just tags
+      const updated: TrafficFlow = {
+        ...existing,
+        annotation: {
+          title: '',
+          tags: newTags,
+          created_at: now,
+          updated_at: now,
+        },
+        tags: newTags,
+      };
+      this.traffic.set(flowId, updated);
+      this.persistTrafficFlow(updated);
+      return updated;
+    }
+  }
+
+  /**
+   * Get all unique tags from all traffic flows
+   */
+  getAllTags(): string[] {
+    const tagSet = new Set<string>();
+    for (const flow of this.traffic.values()) {
+      if (flow.tags) {
+        for (const tag of flow.tags) {
+          tagSet.add(tag);
+          // Also add parent tags for hierarchical tags
+          const parts = tag.split(':');
+          let current = '';
+          for (const part of parts) {
+            current = current ? `${current}:${part}` : part;
+            tagSet.add(current);
+          }
+        }
+      }
+    }
+    return Array.from(tagSet).sort();
+  }
+
+  // ============ Filter Preset methods ============
+
+  addFilterPreset(preset: FilterPreset): void {
+    this.filterPresets.set(preset.id, preset);
+    this.persistFilterPresets();
+  }
+
+  getFilterPreset(id: string): FilterPreset | undefined {
+    return this.filterPresets.get(id);
+  }
+
+  updateFilterPreset(id: string, updates: Partial<FilterPreset>): FilterPreset | null {
+    const existing = this.filterPresets.get(id);
+    if (!existing) return null;
+
+    const updated = { ...existing, ...updates, updated_at: Date.now() };
+    this.filterPresets.set(id, updated);
+    this.persistFilterPresets();
+    return updated;
+  }
+
+  deleteFilterPreset(id: string): boolean {
+    const deleted = this.filterPresets.delete(id);
+    if (deleted) {
+      this.persistFilterPresets();
+    }
+    return deleted;
+  }
+
+  getAllFilterPresets(): FilterPreset[] {
+    return Array.from(this.filterPresets.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async persistFilterPresets(): Promise<void> {
+    if (!persistence.isPersisted('config')) return;
+    const presets = Array.from(this.filterPresets.values());
+    await persistence.saveConfigFile('presets', presets);
+  }
+
+  // ============ URL Log methods ============
+
   addURLLogEntry(entry: URLLogEntry): void {
     this.urlLog.push(entry);
   }
@@ -150,7 +331,8 @@ class Storage {
     return filtered.slice().reverse();
   }
 
-  // Conversation methods
+  // ============ Conversation methods ============
+
   addConversation(conversation: Conversation): void {
     this.conversations.set(conversation.conversation_id, conversation);
   }
@@ -177,7 +359,8 @@ class Storage {
     );
   }
 
-  // Intercept methods
+  // ============ Intercept methods ============
+
   setInterceptMode(mode: InterceptMode): void {
     this.interceptMode = mode;
   }
@@ -210,7 +393,8 @@ class Storage {
     );
   }
 
-  // Stream chunk methods
+  // ============ Stream chunk methods ============
+
   addStreamChunk(flowId: string, chunk: StreamChunk): void {
     const chunks = this.streamChunks.get(flowId) || [];
     chunks.push(chunk);
@@ -225,7 +409,8 @@ class Storage {
     this.streamChunks.delete(flowId);
   }
 
-  // Refusal Rule methods
+  // ============ Refusal Rule methods ============
+
   addRefusalRule(rule: RefusalRule): void {
     this.refusalRules.set(rule.id, rule);
     this.saveRefusalRules();
@@ -289,7 +474,8 @@ class Storage {
     }
   }
 
-  // Pending Refusal methods
+  // ============ Pending Refusal methods ============
+
   addPendingRefusal(pending: PendingRefusal): void {
     this.pendingRefusals.set(pending.id, pending);
   }
@@ -310,7 +496,19 @@ class Storage {
     );
   }
 
-  // Clear all data
+  // ============ Persistence helpers ============
+
+  /**
+   * Persist a traffic flow to disk (fire and forget)
+   */
+  private persistTrafficFlow(flow: TrafficFlow): void {
+    persistence.saveTrafficFlow(flow.flow_id, flow).catch(err => {
+      console.error(`[Storage] Failed to persist traffic flow ${flow.flow_id}:`, err);
+    });
+  }
+
+  // ============ Clear all data ============
+
   clear(): void {
     this.traffic.clear();
     this.conversations.clear();
@@ -319,6 +517,7 @@ class Storage {
     this.streamChunks.clear();
     // Note: refusalRules are NOT cleared as they are configuration
     this.pendingRefusals.clear();
+    // Note: filterPresets are NOT cleared as they are configuration
   }
 }
 

@@ -673,8 +673,8 @@ function TrafficRow({ flow, isSelected, isChecked, onToggleCheck, onClick }: Tra
       )}
 
       {/* Tags with annotation popover */}
-      {flow.tags && flow.tags.length > 0 && flow.annotation_id && (
-        <AnnotationPopover annotationId={flow.annotation_id}>
+      {flow.tags && flow.tags.length > 0 && flow.annotation && (
+        <AnnotationPopover annotation={flow.annotation}>
           <div className="flex items-center gap-1 shrink-0 cursor-pointer">
             {flow.tags.slice(0, 2).map((tag, i) => (
               <span
@@ -694,7 +694,7 @@ function TrafficRow({ flow, isSelected, isChecked, onToggleCheck, onClick }: Tra
       )}
 
       {/* Tags without annotation (shouldn't happen normally but handle gracefully) */}
-      {flow.tags && flow.tags.length > 0 && !flow.annotation_id && (
+      {flow.tags && flow.tags.length > 0 && !flow.annotation && (
         <div className="flex items-center gap-1 shrink-0">
           {flow.tags.slice(0, 2).map((tag, i) => (
             <span
@@ -713,8 +713,8 @@ function TrafficRow({ flow, isSelected, isChecked, onToggleCheck, onClick }: Tra
       )}
 
       {/* Annotation indicator (no tags but has annotation) */}
-      {flow.annotation_id && (!flow.tags || flow.tags.length === 0) && (
-        <AnnotationPopover annotationId={flow.annotation_id}>
+      {flow.annotation && (!flow.tags || flow.tags.length === 0) && (
+        <AnnotationPopover annotation={flow.annotation}>
           <span className="shrink-0 text-blue-400 cursor-pointer">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />

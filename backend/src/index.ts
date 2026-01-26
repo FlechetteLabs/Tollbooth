@@ -40,9 +40,8 @@ import { settingsManager, Settings } from './settings';
 import { createLLMClient, ChatMessage, fetchModelsForProvider, STATIC_MODELS } from './llm-client';
 import { LLMProvider, ConfigurableLLMProvider, DEFAULT_BASE_URLS } from './settings';
 import { refusalManager } from './refusal';
-import { RefusalRule, PendingRefusal, Annotation, AnnotationTargetType, ReplayVariant } from './types';
+import { RefusalRule, PendingRefusal, Annotation, AnnotationTargetType, ReplayVariant, InlineAnnotation } from './types';
 import { shortIdRegistry } from './short-id-registry';
-import { annotationsManager } from './annotations';
 import { replayManager } from './replay';
 
 // Configuration
@@ -1278,143 +1277,248 @@ app.post('/api/chat/complete', async (req, res) => {
 });
 
 // ============ Annotations API Routes ============
-
-// List annotations (with optional filters)
-app.get('/api/annotations', (req, res) => {
-  const filter: { target_type?: AnnotationTargetType; tag?: string; search?: string } = {};
-  if (req.query.target_type) filter.target_type = req.query.target_type as AnnotationTargetType;
-  if (req.query.tag) filter.tag = req.query.tag as string;
-  if (req.query.search) filter.search = req.query.search as string;
-
-  const annotations = annotationsManager.getAll(Object.keys(filter).length > 0 ? filter : undefined);
-  res.json({ annotations, total: annotations.length });
-});
+// Annotations are now stored inline with traffic flows
 
 // Get all unique tags (for autocomplete)
 app.get('/api/annotations/tags', (req, res) => {
-  const tags = annotationsManager.getAllTags();
+  const tags = storage.getAllTags();
   res.json({ tags });
 });
 
-// Get annotation for a specific target
-app.get('/api/annotations/target/:type/:targetId', (req, res) => {
-  const { type, targetId } = req.params;
-  const annotation = annotationsManager.getForTarget(type as AnnotationTargetType, targetId);
-  if (!annotation) {
+// Get annotation for a specific traffic flow
+app.get('/api/annotations/target/traffic/:targetId', (req, res) => {
+  const { targetId } = req.params;
+  const flow = storage.getTraffic(targetId);
+  if (!flow || !flow.annotation) {
     return res.status(404).json({ error: 'Annotation not found' });
   }
-  res.json(annotation);
+  // Return in Annotation format for backwards compat
+  res.json({
+    id: targetId,  // Use flow_id as annotation id
+    target_type: 'traffic',
+    target_id: targetId,
+    ...flow.annotation,
+  });
 });
 
-// Get single annotation
+// Get annotation by flow_id (same as target for inline annotations)
 app.get('/api/annotations/:id', (req, res) => {
-  const annotation = annotationsManager.get(req.params.id);
-  if (!annotation) {
+  // Treat id as flow_id for inline annotations
+  const flow = storage.getTraffic(req.params.id);
+  if (!flow || !flow.annotation) {
     return res.status(404).json({ error: 'Annotation not found' });
   }
-  res.json(annotation);
+  res.json({
+    id: req.params.id,
+    target_type: 'traffic',
+    target_id: req.params.id,
+    ...flow.annotation,
+  });
 });
 
-// Create annotation
+// Create/update annotation for a traffic flow
 app.post('/api/annotations', async (req, res) => {
   try {
     const { target_type, target_id, title, body, tags } = req.body;
 
-    // Require target_type and target_id, plus at least title or tags
-    if (!target_type || !target_id) {
-      return res.status(400).json({ error: 'target_type and target_id are required' });
+    // Only support traffic annotations for now (inline storage)
+    if (target_type !== 'traffic') {
+      return res.status(400).json({ error: 'Only traffic annotations are supported' });
     }
+
+    if (!target_id) {
+      return res.status(400).json({ error: 'target_id is required' });
+    }
+
     const hasTags = Array.isArray(tags) && tags.length > 0;
     const hasTitle = title && title.trim();
     if (!hasTitle && !hasTags) {
       return res.status(400).json({ error: 'At least title or tags must be provided' });
     }
 
-    const annotation = await annotationsManager.create({
-      target_type,
-      target_id,
-      title,
-      body,
-      tags,
-    });
-
-    // Sync annotation to traffic flow if target is traffic
-    if (target_type === 'traffic') {
-      storage.updateTraffic(target_id, {
-        annotation_id: annotation.id,
-        tags: annotation.tags,
-      });
-      // Broadcast updated flow to frontend
-      const updatedFlow = storage.getTraffic(target_id);
-      if (updatedFlow) {
-        broadcastToFrontend({ type: 'traffic', data: updatedFlow });
-      }
+    const flow = storage.getTraffic(target_id);
+    if (!flow) {
+      return res.status(404).json({ error: 'Traffic flow not found' });
     }
 
-    res.json({ success: true, annotation });
+    const now = Date.now();
+    const annotation = {
+      title: title || '',
+      body,
+      tags: tags || [],
+      created_at: flow.annotation?.created_at || now,
+      updated_at: now,
+    };
+
+    const updatedFlow = storage.setTrafficAnnotation(target_id, annotation);
+    if (!updatedFlow) {
+      return res.status(500).json({ error: 'Failed to update annotation' });
+    }
+
+    // Broadcast updated flow to frontend
+    broadcastToFrontend({ type: 'traffic', data: updatedFlow });
+
+    res.json({
+      success: true,
+      annotation: {
+        id: target_id,
+        target_type: 'traffic',
+        target_id,
+        ...annotation,
+      },
+    });
   } catch (err: any) {
     console.error('Failed to create annotation:', err);
     res.status(500).json({ error: err.message || 'Failed to create annotation' });
   }
 });
 
-// Update annotation
+// Update annotation (id is flow_id for inline annotations)
 app.put('/api/annotations/:id', async (req, res) => {
   try {
     const { title, body, tags } = req.body;
-    const annotation = await annotationsManager.update(req.params.id, { title, body, tags });
+    const flowId = req.params.id;
 
-    if (!annotation) {
-      return res.status(404).json({ error: 'Annotation not found' });
+    const flow = storage.getTraffic(flowId);
+    if (!flow) {
+      return res.status(404).json({ error: 'Traffic flow not found' });
     }
 
-    // Sync tags to traffic flow if target is traffic
-    if (annotation.target_type === 'traffic') {
-      storage.updateTraffic(annotation.target_id, {
-        tags: annotation.tags,
-      });
-      // Broadcast updated flow to frontend
-      const updatedFlow = storage.getTraffic(annotation.target_id);
-      if (updatedFlow) {
-        broadcastToFrontend({ type: 'traffic', data: updatedFlow });
-      }
+    const now = Date.now();
+    const annotation = {
+      title: title !== undefined ? title : (flow.annotation?.title || ''),
+      body: body !== undefined ? body : flow.annotation?.body,
+      tags: tags !== undefined ? tags : (flow.annotation?.tags || []),
+      created_at: flow.annotation?.created_at || now,
+      updated_at: now,
+    };
+
+    const updatedFlow = storage.setTrafficAnnotation(flowId, annotation);
+    if (!updatedFlow) {
+      return res.status(500).json({ error: 'Failed to update annotation' });
     }
 
-    res.json({ success: true, annotation });
+    // Broadcast updated flow to frontend
+    broadcastToFrontend({ type: 'traffic', data: updatedFlow });
+
+    res.json({
+      success: true,
+      annotation: {
+        id: flowId,
+        target_type: 'traffic',
+        target_id: flowId,
+        ...annotation,
+      },
+    });
   } catch (err: any) {
     console.error('Failed to update annotation:', err);
     res.status(500).json({ error: err.message || 'Failed to update annotation' });
   }
 });
 
-// Delete annotation
+// Delete annotation (id is flow_id for inline annotations)
 app.delete('/api/annotations/:id', async (req, res) => {
   try {
-    // Get annotation first to know target
-    const annotation = annotationsManager.get(req.params.id);
+    const flowId = req.params.id;
 
-    const deleted = await annotationsManager.delete(req.params.id);
-    if (!deleted) {
+    const flow = storage.getTraffic(flowId);
+    if (!flow || !flow.annotation) {
       return res.status(404).json({ error: 'Annotation not found' });
     }
 
-    // Clear tags from traffic flow if target was traffic
-    if (annotation && annotation.target_type === 'traffic') {
-      storage.updateTraffic(annotation.target_id, {
-        annotation_id: undefined,
-        tags: undefined,
-      });
-      // Broadcast updated flow to frontend
-      const updatedFlow = storage.getTraffic(annotation.target_id);
-      if (updatedFlow) {
-        broadcastToFrontend({ type: 'traffic', data: updatedFlow });
-      }
+    const updatedFlow = storage.setTrafficAnnotation(flowId, null);
+    if (!updatedFlow) {
+      return res.status(500).json({ error: 'Failed to delete annotation' });
     }
+
+    // Broadcast updated flow to frontend
+    broadcastToFrontend({ type: 'traffic', data: updatedFlow });
 
     res.json({ success: true });
   } catch (err: any) {
     console.error('Failed to delete annotation:', err);
     res.status(500).json({ error: err.message || 'Failed to delete annotation' });
+  }
+});
+
+// ============ Filter Presets API Routes ============
+
+// List all filter presets
+app.get('/api/presets', (req, res) => {
+  const presets = storage.getAllFilterPresets();
+  res.json({ presets, total: presets.length });
+});
+
+// Get single preset
+app.get('/api/presets/:id', (req, res) => {
+  const preset = storage.getFilterPreset(req.params.id);
+  if (!preset) {
+    return res.status(404).json({ error: 'Preset not found' });
+  }
+  res.json(preset);
+});
+
+// Create preset
+app.post('/api/presets', (req, res) => {
+  try {
+    const { name, simpleFilters, advancedFilter, isAdvanced } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+
+    const now = Date.now();
+    const preset = {
+      id: `preset_${now}_${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      simpleFilters,
+      advancedFilter,
+      isAdvanced: isAdvanced || false,
+      created_at: now,
+      updated_at: now,
+    };
+
+    storage.addFilterPreset(preset);
+    res.json({ success: true, preset });
+  } catch (err: any) {
+    console.error('Failed to create preset:', err);
+    res.status(500).json({ error: err.message || 'Failed to create preset' });
+  }
+});
+
+// Update preset
+app.put('/api/presets/:id', (req, res) => {
+  try {
+    const { name, simpleFilters, advancedFilter, isAdvanced } = req.body;
+    const updated = storage.updateFilterPreset(req.params.id, {
+      name,
+      simpleFilters,
+      advancedFilter,
+      isAdvanced,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Preset not found' });
+    }
+
+    res.json({ success: true, preset: updated });
+  } catch (err: any) {
+    console.error('Failed to update preset:', err);
+    res.status(500).json({ error: err.message || 'Failed to update preset' });
+  }
+});
+
+// Delete preset
+app.delete('/api/presets/:id', (req, res) => {
+  try {
+    const deleted = storage.deleteFilterPreset(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Preset not found' });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Failed to delete preset:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete preset' });
   }
 });
 
@@ -2018,8 +2122,16 @@ refusalManager.on('alternate_generated', (data: { id: string; response: string }
 
 // ============ Start Servers ============
 
-// Initialize short ID registry and refusal manager
+// Initialize storage and other systems
 (async () => {
+  try {
+    // Initialize storage (loads persisted traffic, presets, etc.)
+    await storage.initialize();
+    console.log('[Storage] Initialized successfully');
+  } catch (err) {
+    console.error('[Storage] Failed to initialize:', err);
+  }
+
   try {
     // Initialize short IDs for datastore items (rules handled by rulesEngine.loadRules())
     await dataStore.initializeShortIds();
@@ -2040,22 +2152,6 @@ refusalManager.on('alternate_generated', (data: { id: string; response: string }
 
 app.listen(REST_PORT, () => {
   console.log(`REST API server listening on port ${REST_PORT}`);
-
-  // Sync existing annotations to traffic flows at startup
-  const annotations = annotationsManager.getAll();
-  let synced = 0;
-  for (const annotation of annotations) {
-    if (annotation.target_type === 'traffic' && annotation.tags && annotation.tags.length > 0) {
-      storage.updateTraffic(annotation.target_id, {
-        annotation_id: annotation.id,
-        tags: annotation.tags,
-      });
-      synced++;
-    }
-  }
-  if (synced > 0) {
-    console.log(`[Startup] Synced ${synced} annotation tags to traffic flows`);
-  }
 });
 
 console.log(`Proxy WebSocket server listening on port ${PROXY_WS_PORT}`);

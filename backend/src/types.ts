@@ -48,9 +48,9 @@ export interface TrafficFlow {
   hidden?: boolean;
   hidden_at?: number;
   hidden_by_rule?: RuleReference;
-  // Annotation reference
-  annotation_id?: string;
-  // Tags from annotation (denormalized for easy access)
+  // Inline annotation (replaces separate annotation storage)
+  annotation?: InlineAnnotation;
+  // Tags (shortcut to annotation.tags for easy access)
   tags?: string[];
   // Replay source (if this flow was created from a replay)
   replay_source?: { variant_id: string; parent_flow_id: string };
@@ -556,6 +556,16 @@ export interface RefusalMetadata {
 
 export type AnnotationTargetType = 'traffic' | 'variant' | 'conversation';
 
+// Inline annotation stored directly in traffic/variant records
+export interface InlineAnnotation {
+  title: string;
+  body?: string;
+  tags: string[];  // e.g., ["refusal:soft", "test"]
+  created_at: number;
+  updated_at: number;
+}
+
+// Full annotation with ID and target reference (for API responses)
 export interface Annotation {
   id: string;
   target_type: AnnotationTargetType;
@@ -590,4 +600,30 @@ export interface ReplayVariant {
     status: ReplayStatus;
     error?: string;
   };
+}
+
+// ============ Filter Preset Types ============
+
+// Simple filters (basic UI)
+export interface TrafficFilters {
+  domain?: string;
+  method?: string;
+  llmOnly?: boolean;
+  searchText?: string;
+  statusCode?: string;
+  provider?: LLMProvider;
+  hasRefusal?: boolean;
+  isModified?: boolean;
+  showHidden?: boolean;
+}
+
+// Advanced filter stored as opaque JSON (frontend defines structure)
+export interface FilterPreset {
+  id: string;
+  name: string;
+  simpleFilters?: TrafficFilters;
+  advancedFilter?: unknown;  // Frontend defines structure
+  isAdvanced: boolean;
+  created_at: number;
+  updated_at: number;
 }
