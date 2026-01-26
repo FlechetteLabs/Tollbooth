@@ -198,9 +198,11 @@ class TrafficInspectorAddon:
             ctx.log.error("Replay request missing URL")
             await self.send_to_backend({
                 "type": "replay_response",
-                "replay_id": replay_id,
-                "variant_id": variant_id,
-                "error": "Missing URL",
+                "data": {
+                    "replay_id": replay_id,
+                    "variant_id": variant_id,
+                    "error": "Missing URL",
+                },
             })
             return
 
@@ -220,9 +222,11 @@ class TrafficInspectorAddon:
             ctx.log.error(f"Failed to parse URL: {e}")
             await self.send_to_backend({
                 "type": "replay_response",
-                "replay_id": replay_id,
-                "variant_id": variant_id,
-                "error": f"Invalid URL: {e}",
+                "data": {
+                    "replay_id": replay_id,
+                    "variant_id": variant_id,
+                    "error": f"Invalid URL: {e}",
+                },
             })
             return
 
@@ -272,10 +276,12 @@ class TrafficInspectorAddon:
             ctx.log.error(f"Replay request failed: {e}")
             await self.send_to_backend({
                 "type": "replay_response",
-                "replay_id": replay_id,
-                "variant_id": variant_id,
-                "flow_id": flow_id,
-                "error": str(e),
+                "data": {
+                    "replay_id": replay_id,
+                    "variant_id": variant_id,
+                    "flow_id": flow_id,
+                    "error": str(e),
+                },
             })
             return
 
@@ -339,10 +345,12 @@ class TrafficInspectorAddon:
         # Send replay completion notification
         await self.send_to_backend({
             "type": "replay_complete",
-            "replay_id": replay_id,
-            "variant_id": variant_id,
-            "flow_id": flow_id,
-            "success": True,
+            "data": {
+                "replay_id": replay_id,
+                "variant_id": variant_id,
+                "flow_id": flow_id,
+                "success": True,
+            },
         })
 
     def should_intercept(self, host: str) -> bool:
