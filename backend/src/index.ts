@@ -2025,6 +2025,22 @@ refusalManager.on('alternate_generated', (data: { id: string; response: string }
 
 app.listen(REST_PORT, () => {
   console.log(`REST API server listening on port ${REST_PORT}`);
+
+  // Sync existing annotations to traffic flows at startup
+  const annotations = annotationsManager.getAll();
+  let synced = 0;
+  for (const annotation of annotations) {
+    if (annotation.target_type === 'traffic' && annotation.tags && annotation.tags.length > 0) {
+      storage.updateTraffic(annotation.target_id, {
+        annotation_id: annotation.id,
+        tags: annotation.tags,
+      });
+      synced++;
+    }
+  }
+  if (synced > 0) {
+    console.log(`[Startup] Synced ${synced} annotation tags to traffic flows`);
+  }
 });
 
 console.log(`Proxy WebSocket server listening on port ${PROXY_WS_PORT}`);
