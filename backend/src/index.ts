@@ -40,6 +40,7 @@ import { createLLMClient, ChatMessage, fetchModelsForProvider, STATIC_MODELS } f
 import { LLMProvider, ConfigurableLLMProvider, DEFAULT_BASE_URLS } from './settings';
 import { refusalManager } from './refusal';
 import { RefusalRule, PendingRefusal } from './types';
+import { shortIdRegistry } from './short-id-registry';
 
 // Configuration
 const REST_PORT = parseInt(process.env.REST_PORT || '3000', 10);
@@ -80,6 +81,67 @@ app.get('/api/traffic/:flowId', (req, res) => {
     return res.status(404).json({ error: 'Flow not found' });
   }
   res.json(flow);
+});
+
+// Hide a traffic flow
+app.post('/api/traffic/:flowId/hide', (req, res) => {
+  const success = storage.hideTraffic(req.params.flowId);
+  if (!success) {
+    return res.status(404).json({ error: 'Flow not found' });
+  }
+  const flow = storage.getTraffic(req.params.flowId);
+  broadcastToFrontend({ type: 'traffic', data: flow });
+  res.json({ success: true, flow });
+});
+
+// Unhide a traffic flow
+app.post('/api/traffic/:flowId/unhide', (req, res) => {
+  const success = storage.unhideTraffic(req.params.flowId);
+  if (!success) {
+    return res.status(404).json({ error: 'Flow not found' });
+  }
+  const flow = storage.getTraffic(req.params.flowId);
+  broadcastToFrontend({ type: 'traffic', data: flow });
+  res.json({ success: true, flow });
+});
+
+// Hide multiple traffic flows
+app.post('/api/traffic/hide-bulk', (req, res) => {
+  const { flow_ids } = req.body;
+  if (!Array.isArray(flow_ids)) {
+    return res.status(400).json({ error: 'flow_ids must be an array' });
+  }
+  const count = storage.hideTrafficBulk(flow_ids);
+  // Broadcast updates for each hidden flow
+  for (const flowId of flow_ids) {
+    const flow = storage.getTraffic(flowId);
+    if (flow) {
+      broadcastToFrontend({ type: 'traffic', data: flow });
+    }
+  }
+  res.json({ success: true, hidden: count });
+});
+
+// Delete a single traffic flow
+app.delete('/api/traffic/:flowId', (req, res) => {
+  const success = storage.deleteTraffic(req.params.flowId);
+  if (!success) {
+    return res.status(404).json({ error: 'Flow not found' });
+  }
+  broadcastToFrontend({ type: 'traffic_deleted', data: { flow_id: req.params.flowId } });
+  res.json({ success: true });
+});
+
+// Clear (delete) multiple traffic flows
+app.post('/api/traffic/clear-bulk', (req, res) => {
+  const { flow_ids } = req.body;
+  if (!Array.isArray(flow_ids)) {
+    return res.status(400).json({ error: 'flow_ids must be an array' });
+  }
+  const count = storage.deleteTrafficBulk(flow_ids);
+  // Broadcast deletions
+  broadcastToFrontend({ type: 'traffic_cleared', data: { flow_ids, count } });
+  res.json({ success: true, cleared: count });
 });
 
 // Get URL log with filtering
@@ -224,25 +286,37 @@ app.post('/api/clear', (req, res) => {
 
 // ============ Data Store API Routes ============
 
+// Helper to add shortId to datastore response item (now stored directly in metadata)
+function addDatastoreResponseShortId(item: { key: string; data: StoredResponse }): { key: string; data: StoredResponse; shortId?: string } {
+  return { ...item, shortId: item.data.metadata.shortId };
+}
+
+// Helper to add shortId to datastore request item (now stored directly in metadata)
+function addDatastoreRequestShortId(item: { key: string; data: StoredRequest }): { key: string; data: StoredRequest; shortId?: string } {
+  return { ...item, shortId: item.data.metadata.shortId };
+}
+
 // List all stored responses
 app.get('/api/datastore/responses', async (req, res) => {
   try {
     const items = await dataStore.getAllResponses();
-    res.json({ items, total: items.length });
+    const itemsWithShortIds = items.map(addDatastoreResponseShortId);
+    res.json({ items: itemsWithShortIds, total: items.length });
   } catch (err: any) {
     console.error('Failed to list responses:', err);
     res.status(500).json({ error: 'Failed to list responses' });
   }
 });
 
-// Get single stored response
+// Get single stored response (accepts short ID like ds1 or full key)
 app.get('/api/datastore/responses/:key', async (req, res) => {
   try {
-    const data = await dataStore.getResponse(req.params.key);
+    const resolvedKey = shortIdRegistry.resolveDatastoreResponseKey(req.params.key) || req.params.key;
+    const data = await dataStore.getResponse(resolvedKey);
     if (!data) {
       return res.status(404).json({ error: 'Response not found' });
     }
-    res.json({ key: req.params.key, data });
+    res.json({ key: resolvedKey, data, shortId: data.metadata.shortId });
   } catch (err: any) {
     console.error('Failed to get response:', err);
     res.status(500).json({ error: 'Failed to get response' });
@@ -270,22 +344,23 @@ app.post('/api/datastore/responses', async (req, res) => {
       data.headers = {};
     }
 
-    await dataStore.saveResponse(key, data);
-    res.json({ success: true, key });
+    const savedData = await dataStore.saveResponse(key, data);
+
+    res.json({ success: true, key, shortId: savedData.metadata.shortId });
   } catch (err: any) {
     console.error('Failed to save response:', err);
     res.status(500).json({ error: 'Failed to save response' });
   }
 });
 
-// Update response
+// Update response (accepts short ID like ds1 or full key)
 app.put('/api/datastore/responses/:key', async (req, res) => {
   try {
-    const key = req.params.key;
+    const resolvedKey = shortIdRegistry.resolveDatastoreResponseKey(req.params.key) || req.params.key;
     const { data } = req.body as { data: StoredResponse };
 
     // Check if exists
-    const existing = await dataStore.getResponse(key);
+    const existing = await dataStore.getResponse(resolvedKey);
     if (!existing) {
       return res.status(404).json({ error: 'Response not found' });
     }
@@ -309,21 +384,23 @@ app.put('/api/datastore/responses/:key', async (req, res) => {
       data.headers = {};
     }
 
-    await dataStore.saveResponse(key, data);
-    res.json({ success: true, key });
+    const savedData = await dataStore.saveResponse(resolvedKey, data);
+    res.json({ success: true, key: resolvedKey, shortId: savedData.metadata.shortId });
   } catch (err: any) {
     console.error('Failed to update response:', err);
     res.status(500).json({ error: 'Failed to update response' });
   }
 });
 
-// Delete response
+// Delete response (accepts short ID like ds1 or full key)
 app.delete('/api/datastore/responses/:key', async (req, res) => {
   try {
-    const deleted = await dataStore.deleteResponse(req.params.key);
+    const resolvedKey = shortIdRegistry.resolveDatastoreResponseKey(req.params.key) || req.params.key;
+    const deleted = await dataStore.deleteResponse(resolvedKey);
     if (!deleted) {
       return res.status(404).json({ error: 'Response not found' });
     }
+
     res.json({ success: true });
   } catch (err: any) {
     console.error('Failed to delete response:', err);
@@ -335,21 +412,23 @@ app.delete('/api/datastore/responses/:key', async (req, res) => {
 app.get('/api/datastore/requests', async (req, res) => {
   try {
     const items = await dataStore.getAllRequests();
-    res.json({ items, total: items.length });
+    const itemsWithShortIds = items.map(addDatastoreRequestShortId);
+    res.json({ items: itemsWithShortIds, total: items.length });
   } catch (err: any) {
     console.error('Failed to list requests:', err);
     res.status(500).json({ error: 'Failed to list requests' });
   }
 });
 
-// Get single stored request
+// Get single stored request (accepts short ID like rq1 or full key)
 app.get('/api/datastore/requests/:key', async (req, res) => {
   try {
-    const data = await dataStore.getRequest(req.params.key);
+    const resolvedKey = shortIdRegistry.resolveDatastoreRequestKey(req.params.key) || req.params.key;
+    const data = await dataStore.getRequest(resolvedKey);
     if (!data) {
       return res.status(404).json({ error: 'Request not found' });
     }
-    res.json({ key: req.params.key, data });
+    res.json({ key: resolvedKey, data, shortId: data.metadata.shortId });
   } catch (err: any) {
     console.error('Failed to get request:', err);
     res.status(500).json({ error: 'Failed to get request' });
@@ -377,22 +456,23 @@ app.post('/api/datastore/requests', async (req, res) => {
       data.headers = {};
     }
 
-    await dataStore.saveRequest(key, data);
-    res.json({ success: true, key });
+    const savedData = await dataStore.saveRequest(key, data);
+
+    res.json({ success: true, key, shortId: savedData.metadata.shortId });
   } catch (err: any) {
     console.error('Failed to save request:', err);
     res.status(500).json({ error: 'Failed to save request' });
   }
 });
 
-// Update request
+// Update request (accepts short ID like rq1 or full key)
 app.put('/api/datastore/requests/:key', async (req, res) => {
   try {
-    const key = req.params.key;
+    const resolvedKey = shortIdRegistry.resolveDatastoreRequestKey(req.params.key) || req.params.key;
     const { data } = req.body as { data: StoredRequest };
 
     // Check if exists
-    const existing = await dataStore.getRequest(key);
+    const existing = await dataStore.getRequest(resolvedKey);
     if (!existing) {
       return res.status(404).json({ error: 'Request not found' });
     }
@@ -416,21 +496,23 @@ app.put('/api/datastore/requests/:key', async (req, res) => {
       data.headers = {};
     }
 
-    await dataStore.saveRequest(key, data);
-    res.json({ success: true, key });
+    const savedData = await dataStore.saveRequest(resolvedKey, data);
+    res.json({ success: true, key: resolvedKey, shortId: savedData.metadata.shortId });
   } catch (err: any) {
     console.error('Failed to update request:', err);
     res.status(500).json({ error: 'Failed to update request' });
   }
 });
 
-// Delete request
+// Delete request (accepts short ID like rq1 or full key)
 app.delete('/api/datastore/requests/:key', async (req, res) => {
   try {
-    const deleted = await dataStore.deleteRequest(req.params.key);
+    const resolvedKey = shortIdRegistry.resolveDatastoreRequestKey(req.params.key) || req.params.key;
+    const deleted = await dataStore.deleteRequest(resolvedKey);
     if (!deleted) {
       return res.status(404).json({ error: 'Request not found' });
     }
+
     res.json({ success: true });
   } catch (err: any) {
     console.error('Failed to delete request:', err);
@@ -439,10 +521,11 @@ app.delete('/api/datastore/requests/:key', async (req, res) => {
 });
 
 // Generate a key based on request properties
-// Transform response using LLM
+// Transform response using LLM (accepts short ID like ds1 or full key)
 app.post('/api/datastore/responses/:key/transform', async (req, res) => {
   try {
-    const { key } = req.params;
+    const resolvedKey = shortIdRegistry.resolveDatastoreResponseKey(req.params.key) || req.params.key;
+    const key = resolvedKey;
     const { prompt, template_id, template_variables, provider, save_as = 'replace', new_key } = req.body;
 
     // Get existing response
@@ -538,20 +621,28 @@ app.post('/api/datastore/generate-key', (req, res) => {
 
 // ============ Rules API Routes ============
 
+// Helper to ensure rule has shortId (rules now store shortId directly, this is for backwards compat)
+function addRuleShortId(rule: Rule): Rule {
+  // Rules now have shortId stored directly on them
+  return rule;
+}
+
 // List all rules (optionally filter by direction)
 app.get('/api/rules', (req, res) => {
   const direction = req.query.direction as RuleDirection | undefined;
   const rules = rulesEngine.getRules(direction);
-  res.json({ rules, total: rules.length });
+  const rulesWithShortIds = rules.map(addRuleShortId);
+  res.json({ rules: rulesWithShortIds, total: rules.length });
 });
 
-// Get single rule
+// Get single rule (accepts short ID like r1 or full ID)
 app.get('/api/rules/:id', (req, res) => {
-  const rule = rulesEngine.getRule(req.params.id);
+  const resolvedId = shortIdRegistry.resolveRuleId(req.params.id) || req.params.id;
+  const rule = rulesEngine.getRule(resolvedId);
   if (!rule) {
     return res.status(404).json({ error: 'Rule not found' });
   }
-  res.json(rule);
+  res.json(addRuleShortId(rule));
 });
 
 // Create rule
@@ -578,41 +669,44 @@ app.post('/api/rules', async (req, res) => {
     rulesEngine.addRule(rule);
     await rulesEngine.saveRules();
 
-    res.json({ success: true, rule });
+    res.json({ success: true, rule: addRuleShortId(rule) });
   } catch (err: any) {
     console.error('Failed to create rule:', err);
     res.status(500).json({ error: err.message || 'Failed to create rule' });
   }
 });
 
-// Update rule
+// Update rule (accepts short ID like r1 or full ID)
 app.put('/api/rules/:id', async (req, res) => {
   try {
-    const rule = rulesEngine.getRule(req.params.id);
+    const resolvedId = shortIdRegistry.resolveRuleId(req.params.id) || req.params.id;
+    const rule = rulesEngine.getRule(resolvedId);
     if (!rule) {
       return res.status(404).json({ error: 'Rule not found' });
     }
 
     const updates = req.body as Partial<Rule>;
-    rulesEngine.updateRule(req.params.id, updates);
+    rulesEngine.updateRule(resolvedId, updates);
     await rulesEngine.saveRules();
 
-    const updatedRule = rulesEngine.getRule(req.params.id);
-    res.json({ success: true, rule: updatedRule });
+    const updatedRule = rulesEngine.getRule(resolvedId);
+    res.json({ success: true, rule: updatedRule ? addRuleShortId(updatedRule) : null });
   } catch (err: any) {
     console.error('Failed to update rule:', err);
     res.status(500).json({ error: err.message || 'Failed to update rule' });
   }
 });
 
-// Delete rule
+// Delete rule (accepts short ID like r1 or full ID)
 app.delete('/api/rules/:id', async (req, res) => {
   try {
-    const deleted = rulesEngine.deleteRule(req.params.id);
+    const resolvedId = shortIdRegistry.resolveRuleId(req.params.id) || req.params.id;
+    const deleted = rulesEngine.deleteRule(resolvedId);
     if (!deleted) {
       return res.status(404).json({ error: 'Rule not found' });
     }
     await rulesEngine.saveRules();
+
     res.json({ success: true });
   } catch (err: any) {
     console.error('Failed to delete rule:', err);
@@ -631,7 +725,8 @@ app.post('/api/rules/reorder', async (req, res) => {
     rulesEngine.reorderRules(orderedIds);
     await rulesEngine.saveRules();
 
-    res.json({ success: true, rules: rulesEngine.getRules() });
+    const rulesWithShortIds = rulesEngine.getRules().map(addRuleShortId);
+    res.json({ success: true, rules: rulesWithShortIds });
   } catch (err: any) {
     console.error('Failed to reorder rules:', err);
     res.status(500).json({ error: 'Failed to reorder rules' });
@@ -1562,8 +1657,16 @@ refusalManager.on('alternate_generated', (data: { id: string; response: string }
 
 // ============ Start Servers ============
 
-// Initialize refusal manager (load rules, initialize analyzer)
+// Initialize short ID registry and refusal manager
 (async () => {
+  try {
+    // Initialize short IDs for datastore items (rules handled by rulesEngine.loadRules())
+    await dataStore.initializeShortIds();
+    console.log('[ShortIdRegistry] Initialized successfully');
+  } catch (err) {
+    console.error('[ShortIdRegistry] Failed to initialize:', err);
+  }
+
   try {
     refusalManager.loadRules();
     await refusalManager.initialize();

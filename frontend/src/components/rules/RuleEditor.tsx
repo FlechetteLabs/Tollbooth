@@ -1316,6 +1316,8 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
                 <option value="serve_from_store">Serve from Data Store</option>
                 <option value="modify_static">Modify Body & Headers</option>
                 <option value="modify_llm">LLM Modification</option>
+                <option value="auto_hide">Auto Hide (hide from traffic view)</option>
+                <option value="auto_clear">Auto Clear (delete from traffic)</option>
               </select>
             </div>
 
