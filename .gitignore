@@ -8,6 +8,9 @@ dist/
 build/
 *.js.map
 
+# ML models (downloaded at runtime)
+backend/models/
+
 # Environment
 .env
 .env.local
