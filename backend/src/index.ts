@@ -1462,15 +1462,127 @@ app.post('/api/replay/:id/send', async (req, res) => {
     // Mark as sent
     await replayManager.markSent(variant.variant_id);
 
-    // TODO: Actually send the request through the proxy
-    // For now, we just mark it as sent and return
-    // The actual replay execution will need proxy integration
+    // Parse the URL
+    const url = new URL(variant.request.url);
+    const isHttps = url.protocol === 'https:';
 
-    res.json({
-      success: true,
-      message: 'Replay initiated',
-      variant: replayManager.get(variant.variant_id),
-    });
+    // Generate a unique flow ID for this replay
+    const replayFlowId = `replay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    // Create the traffic flow for this replay
+    const replayFlow: TrafficFlow = {
+      flow_id: replayFlowId,
+      timestamp: Date.now() / 1000,
+      request: {
+        method: variant.request.method,
+        url: variant.request.url,
+        host: url.hostname,
+        port: url.port ? parseInt(url.port, 10) : (isHttps ? 443 : 80),
+        path: url.pathname + url.search,
+        headers: variant.request.headers,
+        content: variant.request.body || null,
+      },
+      is_llm_api: false, // Will be updated by parsing
+      replay_source: {
+        variant_id: variant.variant_id,
+        parent_flow_id: variant.parent_flow_id,
+      },
+    };
+
+    // Check if it's an LLM API endpoint
+    const llmDomains = [
+      'api.anthropic.com',
+      'api.openai.com',
+      'generativelanguage.googleapis.com',
+    ];
+    if (llmDomains.some(d => url.hostname.includes(d))) {
+      replayFlow.is_llm_api = true;
+    }
+
+    // Store the request immediately
+    storage.addTraffic(replayFlow);
+    broadcastToFrontend({ type: 'traffic', data: replayFlow });
+
+    // Actually send the HTTP request
+    try {
+      const fetchOptions: RequestInit = {
+        method: variant.request.method,
+        headers: variant.request.headers,
+      };
+
+      // Add body for non-GET requests
+      if (variant.request.method !== 'GET' && variant.request.body) {
+        fetchOptions.body = variant.request.body;
+      }
+
+      const response = await fetch(variant.request.url, fetchOptions);
+
+      // Read response body
+      const responseBody = await response.text();
+
+      // Update the flow with response
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        responseHeaders[key] = value;
+      });
+
+      replayFlow.response = {
+        status_code: response.status,
+        reason: response.statusText,
+        headers: responseHeaders,
+        content: responseBody,
+      };
+
+      // Parse if it's an LLM API
+      if (replayFlow.is_llm_api && replayFlow.response) {
+        const parsedReq = parseRequest(replayFlow.request);
+        if (parsedReq) {
+          replayFlow.parsed = parsedReq;
+        }
+        const parsedRes = parseResponse(replayFlow.request, replayFlow.response);
+        if (parsedRes) {
+          replayFlow.parsed = { ...replayFlow.parsed, ...parsedRes } as any;
+        }
+      }
+
+      // Update storage and broadcast
+      storage.updateTraffic(replayFlowId, {
+        response: replayFlow.response,
+        parsed: replayFlow.parsed,
+      });
+      broadcastToFrontend({ type: 'traffic', data: replayFlow });
+
+      // Mark variant as completed
+      await replayManager.markCompleted(variant.variant_id, replayFlowId);
+
+      res.json({
+        success: true,
+        message: 'Replay completed',
+        variant: replayManager.get(variant.variant_id),
+        result_flow_id: replayFlowId,
+      });
+    } catch (fetchErr: any) {
+      // Mark variant as failed
+      await replayManager.markFailed(variant.variant_id, fetchErr.message || 'Request failed');
+
+      // Update flow with error
+      replayFlow.response = {
+        status_code: 0,
+        reason: 'Error',
+        headers: {},
+        content: `Error: ${fetchErr.message}`,
+      };
+      storage.updateTraffic(replayFlowId, { response: replayFlow.response });
+      broadcastToFrontend({ type: 'traffic', data: replayFlow });
+
+      res.json({
+        success: false,
+        message: 'Replay failed',
+        error: fetchErr.message,
+        variant: replayManager.get(variant.variant_id),
+        result_flow_id: replayFlowId,
+      });
+    }
   } catch (err: any) {
     console.error('Failed to send replay:', err);
     res.status(500).json({ error: err.message || 'Failed to send replay' });

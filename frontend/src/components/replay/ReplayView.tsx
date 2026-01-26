@@ -14,27 +14,28 @@ interface VariantTreeData {
   variants: VariantWithChildren[];
 }
 
+type DetailMode = 'original' | 'variant';
+
 export const ReplayView: React.FC = () => {
-  const [variants, setVariants] = useState<ReplayVariant[]>([]);
   const [flowsWithVariants, setFlowsWithVariants] = useState<string[]>([]);
   const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null);
+  const [selectedFlow, setSelectedFlow] = useState<TrafficFlow | null>(null);
   const [variantTree, setVariantTree] = useState<VariantTreeData | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<ReplayVariant | null>(null);
-  const [selectedFlow, setSelectedFlow] = useState<TrafficFlow | null>(null);
+  const [resultFlow, setResultFlow] = useState<TrafficFlow | null>(null);
+  const [detailMode, setDetailMode] = useState<DetailMode>('original');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [parentVariantForCreate, setParentVariantForCreate] = useState<ReplayVariant | undefined>();
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch all variants
+  // Fetch all flows with variants
   useEffect(() => {
-    const fetchVariants = async () => {
+    const fetchFlowsWithVariants = async () => {
       setIsLoading(true);
       try {
         const res = await fetch(`${API_BASE}/api/replay`);
         if (res.ok) {
           const data = await res.json();
-          setVariants(data.variants || []);
-
           // Extract unique flow IDs
           const flowIds = new Set<string>();
           for (const v of data.variants || []) {
@@ -48,17 +49,21 @@ export const ReplayView: React.FC = () => {
         setIsLoading(false);
       }
     };
-    fetchVariants();
+    fetchFlowsWithVariants();
   }, []);
 
-  // Fetch variant tree when flow selected
+  // Fetch flow and variant tree when flow selected
   useEffect(() => {
     if (!selectedFlowId) {
       setVariantTree(null);
+      setSelectedFlow(null);
+      setSelectedVariant(null);
+      setResultFlow(null);
+      setDetailMode('original');
       return;
     }
 
-    const fetchTree = async () => {
+    const fetchData = async () => {
       try {
         const [treeRes, flowRes] = await Promise.all([
           fetch(`${API_BASE}/api/replay/tree/${selectedFlowId}`),
@@ -74,12 +79,49 @@ export const ReplayView: React.FC = () => {
           const flowData = await flowRes.json();
           setSelectedFlow(flowData);
         }
+
+        // Reset to original view when selecting a new flow
+        setSelectedVariant(null);
+        setResultFlow(null);
+        setDetailMode('original');
       } catch (err) {
-        console.error('Failed to fetch tree:', err);
+        console.error('Failed to fetch data:', err);
       }
     };
-    fetchTree();
+    fetchData();
   }, [selectedFlowId]);
+
+  // Fetch result flow when variant with result is selected
+  useEffect(() => {
+    if (!selectedVariant?.result?.result_flow_id) {
+      setResultFlow(null);
+      return;
+    }
+
+    const fetchResultFlow = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/traffic/${selectedVariant.result!.result_flow_id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setResultFlow(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch result flow:', err);
+      }
+    };
+    fetchResultFlow();
+  }, [selectedVariant?.result?.result_flow_id]);
+
+  const handleSelectVariant = (variant: ReplayVariant) => {
+    setSelectedVariant(variant);
+    setDetailMode('variant');
+  };
+
+  const handleSelectOriginal = () => {
+    setSelectedVariant(null);
+    setResultFlow(null);
+    setDetailMode('original');
+  };
 
   const handleSendReplay = async (variant: ReplayVariant) => {
     try {
@@ -115,7 +157,8 @@ export const ReplayView: React.FC = () => {
       });
       if (res.ok) {
         setSelectedVariant(null);
-        // Refresh
+        setDetailMode('original');
+        // Refresh tree
         if (selectedFlowId) {
           const treeRes = await fetch(`${API_BASE}/api/replay/tree/${selectedFlowId}`);
           if (treeRes.ok) {
@@ -136,19 +179,30 @@ export const ReplayView: React.FC = () => {
   const handleVariantCreated = (variant: ReplayVariant) => {
     setShowCreateModal(false);
     setSelectedVariant(variant);
+    setDetailMode('variant');
     // Refresh tree
     if (selectedFlowId) {
       fetch(`${API_BASE}/api/replay/tree/${selectedFlowId}`)
         .then((res) => res.json())
         .then((data) => setVariantTree(data));
     }
+    // Refresh flows list
+    fetch(`${API_BASE}/api/replay`)
+      .then((res) => res.json())
+      .then((data) => {
+        const flowIds = new Set<string>();
+        for (const v of data.variants || []) {
+          flowIds.add(v.parent_flow_id);
+        }
+        setFlowsWithVariants(Array.from(flowIds));
+      });
   };
 
   const renderVariantTree = (variants: VariantWithChildren[], depth = 0) => {
     return variants.map((variant) => (
       <div key={variant.variant_id} style={{ marginLeft: depth * 16 }}>
         <button
-          onClick={() => setSelectedVariant(variant)}
+          onClick={() => handleSelectVariant(variant)}
           className={`w-full text-left px-3 py-2 rounded mb-1 flex items-center gap-2 ${
             selectedVariant?.variant_id === variant.variant_id
               ? 'bg-blue-600'
@@ -159,7 +213,13 @@ export const ReplayView: React.FC = () => {
           <div className="flex-1 min-w-0">
             <div className="text-sm text-white truncate">{variant.description}</div>
             <div className="text-xs text-gray-400">
-              {variant.request.method} {new URL(variant.request.url).pathname}
+              {variant.request.method} {(() => {
+                try {
+                  return new URL(variant.request.url).pathname;
+                } catch {
+                  return variant.request.url;
+                }
+              })()}
             </div>
           </div>
           {variant.result && (
@@ -190,10 +250,16 @@ export const ReplayView: React.FC = () => {
     }
   };
 
+  const formatHeaders = (headers: Record<string, string>) => {
+    return Object.entries(headers)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\n');
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full text-gray-400">
-        Loading variants...
+        Loading...
       </div>
     );
   }
@@ -221,10 +287,7 @@ export const ReplayView: React.FC = () => {
                     : 'text-gray-300 hover:bg-gray-700'
                 }`}
               >
-                <div className="truncate">{flowId.substring(0, 16)}...</div>
-                <div className="text-xs text-gray-400">
-                  {variants.filter((v) => v.parent_flow_id === flowId).length} variants
-                </div>
+                <div className="truncate font-mono text-xs">{flowId.substring(0, 20)}...</div>
               </button>
             ))
           )}
@@ -247,18 +310,131 @@ export const ReplayView: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-2">
           {!selectedFlowId ? (
             <div className="text-gray-500 text-sm p-2">Select a flow to see variants</div>
-          ) : variantTree && variantTree.variants.length > 0 ? (
-            renderVariantTree(variantTree.variants)
           ) : (
-            <div className="text-gray-500 text-sm p-2">No variants for this flow</div>
+            <>
+              {/* Original flow button */}
+              {selectedFlow && (
+                <button
+                  onClick={handleSelectOriginal}
+                  className={`w-full text-left px-3 py-2 rounded mb-2 flex items-center gap-2 ${
+                    detailMode === 'original'
+                      ? 'bg-green-600'
+                      : 'hover:bg-gray-700 border border-gray-600'
+                  }`}
+                >
+                  <span className="text-gray-300">\u2605</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-white">Original Request</div>
+                    <div className="text-xs text-gray-400">
+                      {selectedFlow.request.method} {selectedFlow.request.path}
+                    </div>
+                  </div>
+                </button>
+              )}
+
+              {/* Variant tree */}
+              {variantTree && variantTree.variants.length > 0 ? (
+                renderVariantTree(variantTree.variants)
+              ) : (
+                <div className="text-gray-500 text-sm p-2">No variants yet</div>
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {/* Variant detail */}
+      {/* Detail view */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {selectedVariant ? (
+        {detailMode === 'original' && selectedFlow ? (
           <>
+            {/* Original flow header */}
+            <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-medium text-white flex items-center gap-2">
+                  <span className="text-green-400">\u2605</span>
+                  Original Request
+                </h2>
+                <div className="text-sm text-gray-400">
+                  {new Date(selectedFlow.timestamp).toLocaleString()}
+                </div>
+              </div>
+              <button
+                onClick={() => handleCreateVariant()}
+                className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-500"
+              >
+                Create Variant
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Request details */}
+              <div className="bg-gray-800 rounded p-3">
+                <h3 className="text-sm font-medium text-gray-300 mb-2">Request</h3>
+                <div className="text-sm text-gray-200 mb-2">
+                  <span className="text-blue-400 font-medium">{selectedFlow.request.method}</span>{' '}
+                  {selectedFlow.request.url}
+                </div>
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-xs text-gray-400 mb-1">Headers</div>
+                    <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-32">
+                      {formatHeaders(selectedFlow.request.headers)}
+                    </pre>
+                  </div>
+                  {selectedFlow.request.content && (
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">Body</div>
+                      <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-64">
+                        {selectedFlow.request.content}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Response details */}
+              {selectedFlow.response && (
+                <div className="bg-gray-800 rounded p-3">
+                  <h3 className="text-sm font-medium text-gray-300 mb-2">Response</h3>
+                  <div className="text-sm text-gray-200 mb-2">
+                    <span className={`font-medium ${
+                      selectedFlow.response.status_code >= 400 ? 'text-red-400' : 'text-green-400'
+                    }`}>
+                      {selectedFlow.response.status_code}
+                    </span>{' '}
+                    {selectedFlow.response.reason}
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">Headers</div>
+                      <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-32">
+                        {formatHeaders(selectedFlow.response.headers)}
+                      </pre>
+                    </div>
+                    {selectedFlow.response.content && (
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">Body</div>
+                        <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-64">
+                          {selectedFlow.response.content.substring(0, 5000)}
+                          {selectedFlow.response.content.length > 5000 && '... (truncated)'}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Annotation */}
+              <AnnotationPanel
+                targetType="traffic"
+                targetId={selectedFlow.flow_id}
+                defaultCollapsed={true}
+              />
+            </div>
+          </>
+        ) : detailMode === 'variant' && selectedVariant ? (
+          <>
+            {/* Variant header */}
             <div className="p-4 border-b border-gray-700 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-medium text-white">{selectedVariant.description}</h2>
@@ -308,7 +484,7 @@ export const ReplayView: React.FC = () => {
                   )}
                   {selectedVariant.result.result_flow_id && (
                     <div className="text-xs text-blue-400 mt-1">
-                      Result: {selectedVariant.result.result_flow_id}
+                      Result flow: {selectedVariant.result.result_flow_id}
                     </div>
                   )}
                 </div>
@@ -316,7 +492,7 @@ export const ReplayView: React.FC = () => {
 
               {/* Request details */}
               <div className="bg-gray-800 rounded p-3">
-                <h3 className="text-sm font-medium text-gray-300 mb-2">Request</h3>
+                <h3 className="text-sm font-medium text-gray-300 mb-2">Request (Variant)</h3>
                 <div className="text-sm text-gray-200 mb-2">
                   <span className="text-blue-400 font-medium">{selectedVariant.request.method}</span>{' '}
                   {selectedVariant.request.url}
@@ -324,8 +500,8 @@ export const ReplayView: React.FC = () => {
                 <div className="space-y-2">
                   <div>
                     <div className="text-xs text-gray-400 mb-1">Headers</div>
-                    <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto">
-                      {JSON.stringify(selectedVariant.request.headers, null, 2)}
+                    <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-32">
+                      {formatHeaders(selectedVariant.request.headers)}
                     </pre>
                   </div>
                   {selectedVariant.request.body && (
@@ -338,6 +514,38 @@ export const ReplayView: React.FC = () => {
                   )}
                 </div>
               </div>
+
+              {/* Response from result flow */}
+              {resultFlow?.response && (
+                <div className="bg-gray-800 rounded p-3">
+                  <h3 className="text-sm font-medium text-gray-300 mb-2">Response</h3>
+                  <div className="text-sm text-gray-200 mb-2">
+                    <span className={`font-medium ${
+                      resultFlow.response.status_code >= 400 ? 'text-red-400' : 'text-green-400'
+                    }`}>
+                      {resultFlow.response.status_code}
+                    </span>{' '}
+                    {resultFlow.response.reason}
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <div className="text-xs text-gray-400 mb-1">Headers</div>
+                      <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-32">
+                        {formatHeaders(resultFlow.response.headers)}
+                      </pre>
+                    </div>
+                    {resultFlow.response.content && (
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">Body</div>
+                        <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-64">
+                          {resultFlow.response.content.substring(0, 5000)}
+                          {resultFlow.response.content.length > 5000 && '... (truncated)'}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Settings */}
               <div className="bg-gray-800 rounded p-3">
@@ -357,13 +565,13 @@ export const ReplayView: React.FC = () => {
               <AnnotationPanel
                 targetType="variant"
                 targetId={selectedVariant.variant_id}
-                defaultCollapsed={false}
+                defaultCollapsed={true}
               />
             </div>
           </>
         ) : (
           <div className="flex items-center justify-center h-full text-gray-500">
-            Select a variant to view details
+            Select a flow to view details
           </div>
         )}
       </div>

@@ -19,6 +19,9 @@ backend/models/
 # Settings (contains API keys)
 datastore/settings.json
 
+# Runtime replay data
+datastore/replay/
+
 # Certificates (sensitive)
 certs/
 
