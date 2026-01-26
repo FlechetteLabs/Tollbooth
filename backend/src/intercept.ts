@@ -12,6 +12,7 @@ import {
   LLMModification,
   Rule,
   RuleReference,
+  RuleMatch,
   ParsedLLMResponse,
 } from './types';
 import { storage } from './storage';
@@ -20,6 +21,28 @@ import { dataStore } from './datastore';
 import { settingsManager, ConfigurableLLMProvider } from './settings';
 import { createLLMClient, ChatMessage } from './llm-client';
 import { parseResponse } from './parsers';
+import { annotationsManager } from './annotations';
+
+/**
+ * Apply tags from a rule match to the traffic flow
+ */
+async function applyRuleTags(flow: TrafficFlow, ruleMatch: RuleMatch): Promise<void> {
+  const tags = ruleMatch.rule.action.tags;
+  if (!tags || tags.length === 0) {
+    return;
+  }
+
+  try {
+    const annotation = await annotationsManager.addTags('traffic', flow.flow_id, tags);
+    // Update flow with annotation reference and tags
+    flow.annotation_id = annotation.id;
+    flow.tags = annotation.tags;
+    storage.updateTraffic(flow.flow_id, { annotation_id: annotation.id, tags: annotation.tags });
+    console.log(`[InterceptManager] Applied tags [${tags.join(', ')}] to flow ${flow.flow_id}`);
+  } catch (err) {
+    console.error(`[InterceptManager] Failed to apply tags to flow ${flow.flow_id}:`, err);
+  }
+}
 
 class InterceptManager extends EventEmitter {
   private proxyWs: WebSocket | null = null;
@@ -340,6 +363,9 @@ class InterceptManager extends EventEmitter {
     if (ruleMatch) {
       console.log(`[InterceptManager] Rule matched for request: ${ruleMatch.rule.name} (${ruleMatch.action})`);
 
+      // Apply tags from rule (if any) - this happens regardless of action type
+      await applyRuleTags(flow, ruleMatch);
+
       switch (ruleMatch.action) {
         case 'passthrough':
           // Just forward without adding to pending queue
@@ -476,6 +502,9 @@ class InterceptManager extends EventEmitter {
 
     if (ruleMatch) {
       console.log(`[InterceptManager] Rule matched for response: ${ruleMatch.rule.name} (${ruleMatch.action})`);
+
+      // Apply tags from rule (if any) - this happens regardless of action type
+      await applyRuleTags(flow, ruleMatch);
 
       switch (ruleMatch.action) {
         case 'passthrough':

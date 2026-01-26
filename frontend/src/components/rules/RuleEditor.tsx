@@ -10,6 +10,7 @@ import {
   RuleActionType,
   MatchType,
   RuleFilter,
+  RuleFilterV2,
   RuleAction,
   FindReplaceEntry,
   HeaderModification,
@@ -22,7 +23,12 @@ import {
   PromptTemplate,
   LLMProviderConfig,
   ALL_PROVIDERS,
+  FilterGroup,
+  FilterCondition,
+  FilterOperator,
+  FilterConditionField,
 } from '../../types';
+import { RuleFilterGroupEditor } from './RuleFilterGroupEditor';
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 
@@ -544,6 +550,28 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
   const [responseSizeOperator, setResponseSizeOperator] = useState<'gt' | 'lt' | 'gte' | 'lte'>(rule?.filter.response_size?.operator || 'gt');
   const [responseSizeBytes, setResponseSizeBytes] = useState(rule?.filter.response_size?.bytes || 1000);
 
+  // Advanced filter mode (AND/OR groups)
+  const [advancedFilterMode, setAdvancedFilterMode] = useState(!!rule?.filterV2);
+  const [filterGroups, setFilterGroups] = useState<FilterGroup[]>(() => {
+    if (rule?.filterV2?.groups && rule.filterV2.groups.length > 0) {
+      return rule.filterV2.groups;
+    }
+    // Default: one group with one host condition
+    return [{
+      id: generateId(),
+      operator: 'AND',
+      conditions: [{
+        id: generateId(),
+        field: 'host',
+        match: 'contains',
+        value: '',
+      }],
+    }];
+  });
+  const [filterGroupsOperator, setFilterGroupsOperator] = useState<FilterOperator>(
+    rule?.filterV2?.operator || 'AND'
+  );
+
   // Action state
   const [actionType, setActionType] = useState<RuleActionType>(rule?.action.type || 'passthrough');
   const [storeKey, setStoreKey] = useState(rule?.action.store_key || '');
@@ -580,6 +608,11 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
 
+  // Tags to apply when rule matches
+  const [actionTags, setActionTags] = useState<string[]>(rule?.action.tags || []);
+  const [tagInput, setTagInput] = useState('');
+  const [allTags, setAllTags] = useState<string[]>([]);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -600,6 +633,22 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
       fetchTemplates();
     }
   }, [actionType]);
+
+  // Fetch all existing tags for autocomplete
+  useEffect(() => {
+    const fetchTags = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/annotations/tags`);
+        if (res.ok) {
+          const data = await res.json();
+          setAllTags(data.tags || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch tags:', err);
+      }
+    };
+    fetchTags();
+  }, []);
 
   const fetchTemplates = async () => {
     setLoadingTemplates(true);
@@ -740,6 +789,34 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
       };
     }
 
+    // Add tags to action if any are specified
+    if (actionTags.length > 0) {
+      action.tags = actionTags;
+    }
+
+    // Build filterV2 if in advanced mode
+    let filterV2: RuleFilterV2 | undefined;
+    if (advancedFilterMode) {
+      // Clean up empty conditions
+      const cleanedGroups = filterGroups.map(g => ({
+        ...g,
+        conditions: g.conditions.filter(c => {
+          // Keep conditions that have meaningful values
+          if (c.field === 'is_llm_api') return true; // Boolean fields always valid
+          if (c.field === 'response_size') return c.sizeBytes !== undefined;
+          if (c.field === 'status_code') return c.value?.trim();
+          return c.value?.trim() || (c.key?.trim() && (c.field === 'header' || c.field === 'response_header'));
+        }),
+      })).filter(g => g.conditions.length > 0);
+
+      if (cleanedGroups.length > 0) {
+        filterV2 = {
+          operator: filterGroupsOperator,
+          groups: cleanedGroups,
+        };
+      }
+    }
+
     const newRule: Rule = {
       id: rule?.id || generateId(),
       name: name.trim(),
@@ -747,6 +824,7 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
       direction,
       priority: rule?.priority ?? 999,
       filter,
+      filterV2,
       action,
     };
 
@@ -786,6 +864,67 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
 
   const removeHeaderModification = (index: number) => {
     setHeaderModifications(headerModifications.filter((_, i) => i !== index));
+  };
+
+  // Advanced filter group helpers
+  const addFilterGroup = () => {
+    const newGroup: FilterGroup = {
+      id: generateId(),
+      operator: 'AND',
+      conditions: [{
+        id: generateId(),
+        field: 'host',
+        match: 'contains',
+        value: '',
+      }],
+    };
+    setFilterGroups([...filterGroups, newGroup]);
+  };
+
+  const removeFilterGroup = (groupId: string) => {
+    if (filterGroups.length <= 1) return;
+    setFilterGroups(filterGroups.filter(g => g.id !== groupId));
+  };
+
+  const updateFilterGroupOperator = (groupId: string, operator: FilterOperator) => {
+    setFilterGroups(filterGroups.map(g =>
+      g.id === groupId ? { ...g, operator } : g
+    ));
+  };
+
+  const addConditionToGroup = (groupId: string) => {
+    const newCondition: FilterCondition = {
+      id: generateId(),
+      field: 'host',
+      match: 'contains',
+      value: '',
+    };
+    setFilterGroups(filterGroups.map(g =>
+      g.id === groupId
+        ? { ...g, conditions: [...g.conditions, newCondition] }
+        : g
+    ));
+  };
+
+  const updateConditionInGroup = (groupId: string, conditionId: string, updates: Partial<FilterCondition>) => {
+    setFilterGroups(filterGroups.map(g =>
+      g.id === groupId
+        ? {
+            ...g,
+            conditions: g.conditions.map(c =>
+              c.id === conditionId ? { ...c, ...updates } : c
+            ),
+          }
+        : g
+    ));
+  };
+
+  const removeConditionFromGroup = (groupId: string, conditionId: string) => {
+    setFilterGroups(filterGroups.map(g => {
+      if (g.id !== groupId) return g;
+      if (g.conditions.length <= 1) return g;
+      return { ...g, conditions: g.conditions.filter(c => c.id !== conditionId) };
+    }));
   };
 
   // Test rule execution
@@ -1040,106 +1179,205 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
 
           {/* Filters */}
           <section className="space-y-4">
-            <h3 className="text-sm font-medium text-inspector-muted uppercase tracking-wide">
-              Filters (all must match)
-            </h3>
-
-            {/* Host filter */}
-            <FilterRow
-              label="Host"
-              enabled={hostEnabled}
-              onToggle={setHostEnabled}
-              matchType={hostMatch}
-              onMatchChange={setHostMatch}
-              value={hostValue}
-              onValueChange={setHostValue}
-              placeholder="api.anthropic.com"
-              testId="filter-host"
-            />
-
-            {/* Path filter */}
-            <FilterRow
-              label="Path"
-              enabled={pathEnabled}
-              onToggle={setPathEnabled}
-              matchType={pathMatch}
-              onMatchChange={setPathMatch}
-              value={pathValue}
-              onValueChange={setPathValue}
-              placeholder="/v1/messages"
-              testId="filter-path"
-            />
-
-            {/* Method filter */}
-            <FilterRow
-              label="Method"
-              enabled={methodEnabled}
-              onToggle={setMethodEnabled}
-              matchType={methodMatch}
-              onMatchChange={setMethodMatch}
-              value={methodValue}
-              onValueChange={setMethodValue}
-              placeholder="POST"
-              testId="filter-method"
-            />
-
-            {/* Header filter */}
-            <div className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                checked={headerEnabled}
-                onChange={(e) => setHeaderEnabled(e.target.checked)}
-                className="mt-2 w-4 h-4"
-              />
-              <div className="flex-1 space-y-2">
-                <span className="text-sm text-inspector-text">Header</span>
-                {headerEnabled && (
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={headerKey}
-                      onChange={(e) => setHeaderKey(e.target.value)}
-                      placeholder="Header name"
-                      className="w-32 bg-inspector-bg border border-inspector-border rounded px-2 py-1 text-sm text-inspector-text"
-                    />
-                    <select
-                      value={headerMatch}
-                      onChange={(e) => setHeaderMatch(e.target.value as MatchType)}
-                      className="bg-inspector-bg border border-inspector-border rounded px-2 py-1 text-sm text-inspector-text"
-                    >
-                      <option value="exact">exact</option>
-                      <option value="contains">contains</option>
-                      <option value="regex">regex</option>
-                    </select>
-                    <input
-                      type="text"
-                      value={headerValue}
-                      onChange={(e) => setHeaderValue(e.target.value)}
-                      placeholder="Value"
-                      className="flex-1 bg-inspector-bg border border-inspector-border rounded px-2 py-1 text-sm text-inspector-text"
-                    />
-                  </div>
-                )}
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-inspector-muted uppercase tracking-wide">
+                Filters
+              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-inspector-muted">Mode:</span>
+                <button
+                  type="button"
+                  onClick={() => setAdvancedFilterMode(false)}
+                  className={clsx(
+                    'px-2 py-1 text-xs rounded transition-colors',
+                    !advancedFilterMode
+                      ? 'bg-inspector-accent text-white'
+                      : 'bg-inspector-surface text-inspector-muted hover:text-inspector-text'
+                  )}
+                >
+                  Simple
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdvancedFilterMode(true)}
+                  className={clsx(
+                    'px-2 py-1 text-xs rounded transition-colors',
+                    advancedFilterMode
+                      ? 'bg-inspector-accent text-white'
+                      : 'bg-inspector-surface text-inspector-muted hover:text-inspector-text'
+                  )}
+                >
+                  Advanced
+                </button>
               </div>
             </div>
 
-            {/* LLM API filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-inspector-text w-20">LLM API:</span>
-              <select
-                value={llmApiFilter}
-                onChange={(e) => setLlmApiFilter(e.target.value as 'any' | 'only' | 'exclude')}
-                className="bg-inspector-bg border border-inspector-border rounded px-2 py-1 text-sm text-inspector-text"
-              >
-                <option value="any">Any traffic</option>
-                <option value="only">LLM API only</option>
-                <option value="exclude">Non-LLM only</option>
-              </select>
-            </div>
+            {!advancedFilterMode ? (
+              <>
+                {/* Simple filter mode - original UI */}
+                <p className="text-xs text-inspector-muted">All conditions must match (AND logic)</p>
+
+                {/* Host filter */}
+                <FilterRow
+                  label="Host"
+                  enabled={hostEnabled}
+                  onToggle={setHostEnabled}
+                  matchType={hostMatch}
+                  onMatchChange={setHostMatch}
+                  value={hostValue}
+                  onValueChange={setHostValue}
+                  placeholder="api.anthropic.com"
+                  testId="filter-host"
+                />
+
+                {/* Path filter */}
+                <FilterRow
+                  label="Path"
+                  enabled={pathEnabled}
+                  onToggle={setPathEnabled}
+                  matchType={pathMatch}
+                  onMatchChange={setPathMatch}
+                  value={pathValue}
+                  onValueChange={setPathValue}
+                  placeholder="/v1/messages"
+                  testId="filter-path"
+                />
+
+                {/* Method filter */}
+                <FilterRow
+                  label="Method"
+                  enabled={methodEnabled}
+                  onToggle={setMethodEnabled}
+                  matchType={methodMatch}
+                  onMatchChange={setMethodMatch}
+                  value={methodValue}
+                  onValueChange={setMethodValue}
+                  placeholder="POST"
+                  testId="filter-method"
+                />
+
+                {/* Header filter */}
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={headerEnabled}
+                    onChange={(e) => setHeaderEnabled(e.target.checked)}
+                    className="mt-2 w-4 h-4"
+                  />
+                  <div className="flex-1 space-y-2">
+                    <span className="text-sm text-inspector-text">Header</span>
+                    {headerEnabled && (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={headerKey}
+                          onChange={(e) => setHeaderKey(e.target.value)}
+                          placeholder="Header name"
+                          className="w-32 bg-inspector-bg border border-inspector-border rounded px-2 py-1 text-sm text-inspector-text"
+                        />
+                        <select
+                          value={headerMatch}
+                          onChange={(e) => setHeaderMatch(e.target.value as MatchType)}
+                          className="bg-inspector-bg border border-inspector-border rounded px-2 py-1 text-sm text-inspector-text"
+                        >
+                          <option value="exact">exact</option>
+                          <option value="contains">contains</option>
+                          <option value="regex">regex</option>
+                        </select>
+                        <input
+                          type="text"
+                          value={headerValue}
+                          onChange={(e) => setHeaderValue(e.target.value)}
+                          placeholder="Value"
+                          className="flex-1 bg-inspector-bg border border-inspector-border rounded px-2 py-1 text-sm text-inspector-text"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* LLM API filter */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-inspector-text w-20">LLM API:</span>
+                  <select
+                    value={llmApiFilter}
+                    onChange={(e) => setLlmApiFilter(e.target.value as 'any' | 'only' | 'exclude')}
+                    className="bg-inspector-bg border border-inspector-border rounded px-2 py-1 text-sm text-inspector-text"
+                  >
+                    <option value="any">Any traffic</option>
+                    <option value="only">LLM API only</option>
+                    <option value="exclude">Non-LLM only</option>
+                  </select>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Advanced filter mode - AND/OR groups */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-inspector-muted">Match</span>
+                  <select
+                    value={filterGroupsOperator}
+                    onChange={(e) => setFilterGroupsOperator(e.target.value as FilterOperator)}
+                    className="px-2 py-1 bg-inspector-bg border border-inspector-border rounded text-xs font-medium focus:outline-none focus:border-inspector-accent"
+                  >
+                    <option value="AND">ALL (AND)</option>
+                    <option value="OR">ANY (OR)</option>
+                  </select>
+                  <span className="text-xs text-inspector-muted">of the following groups:</span>
+                </div>
+
+                <div className="space-y-4">
+                  {filterGroups.map((group, index) => (
+                    <div key={group.id}>
+                      {index > 0 && (
+                        <div className="flex items-center justify-center py-2">
+                          <span
+                            className={clsx(
+                              'px-3 py-1 text-xs rounded font-medium',
+                              filterGroupsOperator === 'AND'
+                                ? 'bg-blue-500/20 text-blue-400'
+                                : 'bg-green-500/20 text-green-400'
+                            )}
+                          >
+                            {filterGroupsOperator}
+                          </span>
+                        </div>
+                      )}
+                      <RuleFilterGroupEditor
+                        group={group}
+                        groupIndex={index}
+                        onOperatorChange={(op) => updateFilterGroupOperator(group.id, op)}
+                        onAddCondition={() => addConditionToGroup(group.id)}
+                        onUpdateCondition={(condId, updates) =>
+                          updateConditionInGroup(group.id, condId, updates)
+                        }
+                        onRemoveCondition={(condId) =>
+                          removeConditionFromGroup(group.id, condId)
+                        }
+                        onRemoveGroup={() => removeFilterGroup(group.id)}
+                        isOnly={filterGroups.length === 1}
+                        direction={direction}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={addFilterGroup}
+                  className="w-full py-2 border border-dashed border-inspector-border rounded text-xs text-inspector-muted hover:text-inspector-text hover:border-inspector-accent transition-colors flex items-center justify-center gap-1"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add Filter Group
+                </button>
+              </>
+            )}
           </section>
 
-          {/* Response Filters (only for response rules) */}
-          {direction === 'response' && (
+          {/* Response Filters (only for response rules in simple mode) */}
+          {direction === 'response' && !advancedFilterMode && (
             <section className="space-y-4">
               <h3 className="text-sm font-medium text-inspector-muted uppercase tracking-wide">
                 Response Filters (optional)
@@ -1740,6 +1978,75 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
                 </p>
               </div>
             )}
+
+            {/* Tags - available for all action types */}
+            <div className="border-t border-inspector-border pt-4 mt-4">
+              <label className="block text-sm text-inspector-text mb-1">Tags (optional)</label>
+              <p className="text-xs text-inspector-muted mb-2">
+                Tags will be automatically applied to matching traffic for easy filtering.
+              </p>
+              <div className="flex flex-wrap gap-1 mb-2">
+                {actionTags.map((tag, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-600/20 text-blue-400 rounded text-xs"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => setActionTags(actionTags.filter((_, idx) => idx !== i))}
+                      className="hover:text-blue-200"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && tagInput.trim()) {
+                      e.preventDefault();
+                      if (!actionTags.includes(tagInput.trim())) {
+                        setActionTags([...actionTags, tagInput.trim()]);
+                      }
+                      setTagInput('');
+                    }
+                  }}
+                  placeholder="Enter tag and press Enter"
+                  className="flex-1 bg-inspector-bg border border-inspector-border rounded px-2 py-1 text-sm text-inspector-text"
+                  list="tag-suggestions"
+                />
+                <datalist id="tag-suggestions">
+                  {allTags
+                    .filter(t => !actionTags.includes(t) && t.toLowerCase().includes(tagInput.toLowerCase()))
+                    .slice(0, 10)
+                    .map(t => (
+                      <option key={t} value={t} />
+                    ))}
+                </datalist>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (tagInput.trim() && !actionTags.includes(tagInput.trim())) {
+                      setActionTags([...actionTags, tagInput.trim()]);
+                      setTagInput('');
+                    }
+                  }}
+                  className="px-3 py-1 bg-inspector-bg border border-inspector-border rounded text-xs text-inspector-muted hover:text-inspector-text hover:border-inspector-accent"
+                >
+                  Add
+                </button>
+              </div>
+              <p className="text-xs text-inspector-muted mt-1">
+                Tip: Use hierarchical tags like "category:subcategory" for organization.
+              </p>
+            </div>
           </section>
 
           {/* Test Rule Section */}

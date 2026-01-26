@@ -50,6 +50,8 @@ export interface TrafficFlow {
   hidden_by_rule?: RuleReference;
   // Annotation reference
   annotation_id?: string;
+  // Tags from annotation (denormalized for easy access)
+  tags?: string[];
   // Replay source (if this flow was created from a replay)
   replay_source?: { variant_id: string; parent_flow_id: string };
 }
@@ -336,6 +338,7 @@ export type FilterConditionField =
   | 'response_size';
 
 export interface FilterCondition {
+  id?: string;  // Unique ID for UI (optional for backwards compat)
   field: FilterConditionField;
   // For string matches (host, path, method, header values, response_body_contains)
   match?: MatchType;
@@ -435,6 +438,7 @@ export interface RuleAction {
   request_merge_mode?: RequestMergeMode;  // For serve_from_store on requests: how to merge stored data
   static_modification?: StaticModification;  // For modify_static
   llm_modification?: LLMModification;  // For modify_llm
+  tags?: string[];  // Tags to add to matching traffic (works with any action type)
 }
 
 export interface Rule {

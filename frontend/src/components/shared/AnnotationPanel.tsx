@@ -76,7 +76,10 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
   }, []);
 
   const handleSave = async () => {
-    if (!title.trim()) {
+    // Require either title or tags
+    const hasTitle = title.trim().length > 0;
+    const hasTags = tags.length > 0;
+    if (!hasTitle && !hasTags) {
       return;
     }
 
@@ -119,6 +122,10 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
       setIsSaving(false);
     }
   };
+
+  // Determine if this is a quick tag (tags only) or full annotation
+  const isQuickTag = tags.length > 0 && !title.trim() && !body.trim();
+  const canSave = title.trim().length > 0 || tags.length > 0;
 
   const handleDelete = async () => {
     if (!annotation) return;
@@ -235,7 +242,7 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
           <>
             {/* Title input */}
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Title</label>
+              <label className="block text-xs text-gray-400 mb-1">Title (optional if using tags)</label>
               <input
                 type="text"
                 value={title}
@@ -280,10 +287,10 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
               )}
               <button
                 onClick={handleSave}
-                disabled={!title.trim() || isSaving}
+                disabled={!canSave || isSaving}
                 className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSaving ? 'Saving...' : annotation ? 'Update' : 'Save'}
+                {isSaving ? 'Saving...' : annotation ? 'Update' : isQuickTag ? 'Quick Tag' : 'Save'}
               </button>
             </div>
           </>

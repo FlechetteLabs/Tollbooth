@@ -1320,8 +1320,14 @@ app.post('/api/annotations', async (req, res) => {
   try {
     const { target_type, target_id, title, body, tags } = req.body;
 
-    if (!target_type || !target_id || !title) {
-      return res.status(400).json({ error: 'target_type, target_id, and title are required' });
+    // Require target_type and target_id, plus at least title or tags
+    if (!target_type || !target_id) {
+      return res.status(400).json({ error: 'target_type and target_id are required' });
+    }
+    const hasTags = Array.isArray(tags) && tags.length > 0;
+    const hasTitle = title && title.trim();
+    if (!hasTitle && !hasTags) {
+      return res.status(400).json({ error: 'At least title or tags must be provided' });
     }
 
     const annotation = await annotationsManager.create({

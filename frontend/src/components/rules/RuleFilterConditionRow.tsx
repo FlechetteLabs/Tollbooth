@@ -1,24 +1,23 @@
 /**
- * FilterConditionRow - Single filter condition editor
+ * RuleFilterConditionRow - Single filter condition editor for rules
  */
 
 import { clsx } from 'clsx';
 import {
-  TrafficFilterCondition,
-  TrafficFilterField,
-  FilterScope,
+  FilterCondition,
+  FilterConditionField,
   MatchType,
   StatusCodeMatch,
 } from '../../types';
 
 interface FieldOption {
-  value: TrafficFilterField;
+  value: FilterConditionField;
   label: string;
-  scopes: FilterScope[];
   matchTypes?: MatchType[];
   isBoolean?: boolean;
   isStatus?: boolean;
   isSize?: boolean;
+  responseOnly?: boolean; // Only available for response rules
 }
 
 interface FieldGroup {
@@ -28,36 +27,22 @@ interface FieldGroup {
 
 const fieldOptions: FieldGroup[] = [
   {
-    group: 'URL',
-    fields: [
-      { value: 'host', label: 'Host', scopes: ['request'], matchTypes: ['exact', 'contains', 'regex'] },
-      { value: 'path', label: 'Path', scopes: ['request'], matchTypes: ['exact', 'contains', 'regex'] },
-    ],
-  },
-  {
     group: 'Request',
     fields: [
-      { value: 'method', label: 'Method', scopes: ['request'], matchTypes: ['exact', 'contains'] },
-      { value: 'header', label: 'Header', scopes: ['request', 'response', 'either'], matchTypes: ['exact', 'contains', 'regex'] },
-      { value: 'request_body_contains', label: 'Body Contains', scopes: ['request'], matchTypes: ['contains', 'regex'] },
-      { value: 'request_body_size', label: 'Body Size', scopes: ['request'], isSize: true },
+      { value: 'host', label: 'Host', matchTypes: ['exact', 'contains', 'regex'] },
+      { value: 'path', label: 'Path', matchTypes: ['exact', 'contains', 'regex'] },
+      { value: 'method', label: 'Method', matchTypes: ['exact', 'contains'] },
+      { value: 'header', label: 'Request Header', matchTypes: ['exact', 'contains', 'regex'] },
+      { value: 'is_llm_api', label: 'LLM API', isBoolean: true },
     ],
   },
   {
     group: 'Response',
     fields: [
-      { value: 'status_code', label: 'Status Code', scopes: ['response'], isStatus: true },
-      { value: 'response_body_contains', label: 'Body Contains', scopes: ['response'], matchTypes: ['contains', 'regex'] },
-      { value: 'response_size', label: 'Body Size', scopes: ['response'], isSize: true },
-    ],
-  },
-  {
-    group: 'Metadata',
-    fields: [
-      { value: 'is_llm_api', label: 'LLM API', scopes: ['either'], isBoolean: true },
-      { value: 'has_refusal', label: 'Has Refusal', scopes: ['either'], isBoolean: true },
-      { value: 'is_modified', label: 'Modified', scopes: ['either'], isBoolean: true },
-      { value: 'has_tag', label: 'Has Tag', scopes: ['either'], matchTypes: ['exact', 'contains'] },
+      { value: 'status_code', label: 'Status Code', isStatus: true, responseOnly: true },
+      { value: 'response_body_contains', label: 'Body Contains', matchTypes: ['contains', 'regex'], responseOnly: true },
+      { value: 'response_header', label: 'Response Header', matchTypes: ['exact', 'contains', 'regex'], responseOnly: true },
+      { value: 'response_size', label: 'Body Size', isSize: true, responseOnly: true },
     ],
   },
 ];
@@ -65,33 +50,44 @@ const fieldOptions: FieldGroup[] = [
 // Flatten for quick lookup
 const allFields = fieldOptions.flatMap((g) => g.fields);
 
-interface FilterConditionRowProps {
-  condition: TrafficFilterCondition;
-  onChange: (updates: Partial<TrafficFilterCondition>) => void;
+interface RuleFilterConditionRowProps {
+  condition: FilterCondition;
+  onChange: (updates: Partial<FilterCondition>) => void;
   onRemove: () => void;
   isOnly: boolean;
+  direction: 'request' | 'response';
 }
 
-export function FilterConditionRow({
+export function RuleFilterConditionRow({
   condition,
   onChange,
   onRemove,
   isOnly,
-}: FilterConditionRowProps) {
+  direction,
+}: RuleFilterConditionRowProps) {
   const fieldConfig = allFields.find((f) => f.value === condition.field);
-  const availableScopes = fieldConfig?.scopes || ['request'];
   const isBoolean = fieldConfig?.isBoolean || false;
   const isStatus = fieldConfig?.isStatus || false;
   const isSize = fieldConfig?.isSize || false;
   const matchTypes = fieldConfig?.matchTypes;
 
+  // Filter fields based on rule direction
+  const availableFieldOptions = fieldOptions.map((group) => ({
+    ...group,
+    fields: group.fields.filter((f) => {
+      // For request rules, exclude response-only fields
+      if (direction === 'request' && f.responseOnly) return false;
+      return true;
+    }),
+  })).filter((group) => group.fields.length > 0);
+
   // Determine if we need a header key input
-  const needsHeaderKey = condition.field === 'header';
+  const needsHeaderKey = condition.field === 'header' || condition.field === 'response_header';
 
   // Handle field change - reset related fields
-  const handleFieldChange = (newField: TrafficFilterField) => {
+  const handleFieldChange = (newField: FilterConditionField) => {
     const newConfig = allFields.find((f) => f.value === newField);
-    const updates: Partial<TrafficFilterCondition> = { field: newField };
+    const updates: Partial<FilterCondition> = { field: newField };
 
     // Reset value-related fields
     updates.value = '';
@@ -100,11 +96,6 @@ export function FilterConditionRow({
     updates.statusMatch = undefined;
     updates.sizeOperator = undefined;
     updates.sizeBytes = undefined;
-
-    // Set default scope if current scope not available
-    if (newConfig && !newConfig.scopes.includes(condition.scope)) {
-      updates.scope = newConfig.scopes[0];
-    }
 
     // Set default match type
     if (newConfig?.matchTypes && newConfig.matchTypes.length > 0) {
@@ -133,10 +124,10 @@ export function FilterConditionRow({
       {/* Field dropdown */}
       <select
         value={condition.field}
-        onChange={(e) => handleFieldChange(e.target.value as TrafficFilterField)}
-        className="px-2 py-1 bg-inspector-surface border border-inspector-border rounded text-xs focus:outline-none focus:border-inspector-accent min-w-[100px]"
+        onChange={(e) => handleFieldChange(e.target.value as FilterConditionField)}
+        className="px-2 py-1 bg-inspector-surface border border-inspector-border rounded text-xs focus:outline-none focus:border-inspector-accent min-w-[120px]"
       >
-        {fieldOptions.map((group) => (
+        {availableFieldOptions.map((group) => (
           <optgroup key={group.group} label={group.group}>
             {group.fields.map((field) => (
               <option key={field.value} value={field.value}>
@@ -146,19 +137,6 @@ export function FilterConditionRow({
           </optgroup>
         ))}
       </select>
-
-      {/* Scope dropdown - only show if field supports multiple scopes */}
-      {availableScopes.length > 1 && (
-        <select
-          value={condition.scope}
-          onChange={(e) => onChange({ scope: e.target.value as FilterScope })}
-          className="px-2 py-1 bg-inspector-surface border border-inspector-border rounded text-xs focus:outline-none focus:border-inspector-accent"
-        >
-          {availableScopes.includes('request') && <option value="request">Request</option>}
-          {availableScopes.includes('response') && <option value="response">Response</option>}
-          {availableScopes.includes('either') && <option value="either">Either</option>}
-        </select>
-      )}
 
       {/* Header key input */}
       {needsHeaderKey && (

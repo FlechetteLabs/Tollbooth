@@ -53,11 +53,12 @@ export class AnnotationsManager {
 
   /**
    * Create a new annotation
+   * Title is optional - can create tag-only annotations
    */
   async create(data: {
     target_type: AnnotationTargetType;
     target_id: string;
-    title: string;
+    title?: string;
     body?: string;
     tags?: string[];
   }): Promise<Annotation> {
@@ -66,7 +67,7 @@ export class AnnotationsManager {
       id: `ann_${now}_${Math.random().toString(36).slice(2, 8)}`,
       target_type: data.target_type,
       target_id: data.target_id,
-      title: data.title,
+      title: data.title || '',
       body: data.body,
       tags: data.tags || [],
       created_at: now,
@@ -76,6 +77,31 @@ export class AnnotationsManager {
     this.annotations.set(annotation.id, annotation);
     await this.save();
     return annotation;
+  }
+
+  /**
+   * Add tags to a target, creating annotation if needed
+   * Used by rules engine to automatically tag traffic
+   */
+  async addTags(
+    targetType: AnnotationTargetType,
+    targetId: string,
+    newTags: string[]
+  ): Promise<Annotation> {
+    const existing = this.getForTarget(targetType, targetId);
+
+    if (existing) {
+      // Merge tags, avoiding duplicates
+      const tagSet = new Set([...existing.tags, ...newTags]);
+      return await this.update(existing.id, { tags: Array.from(tagSet) }) as Annotation;
+    } else {
+      // Create new annotation with just tags
+      return await this.create({
+        target_type: targetType,
+        target_id: targetId,
+        tags: newTags,
+      });
+    }
   }
 
   /**

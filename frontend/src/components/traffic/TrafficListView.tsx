@@ -3,7 +3,7 @@
  * hide/clear functionality, and saved filter presets
  */
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { clsx } from 'clsx';
 import { useAppStore } from '../../stores/appStore';
 import { useFilterStore } from '../../stores/filterStore';
@@ -47,6 +47,7 @@ interface FilterBarProps {
   domains: string[];
   methods: string[];
   providers: LLMProvider[];
+  allTags: string[];
   onExport: (format: 'csv' | 'json') => void;
   totalCount: number;
   filteredCount: number;
@@ -65,6 +66,7 @@ function FilterBar({
   domains,
   methods,
   providers,
+  allTags,
   onExport,
   totalCount,
   filteredCount,
@@ -82,6 +84,9 @@ function FilterBar({
   const [showSimpleAdvanced, setShowSimpleAdvanced] = useState(false);
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
+  const [showTagAutocomplete, setShowTagAutocomplete] = useState(false);
+  const [tagFilter, setTagFilter] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const {
     activeFilters,
@@ -95,6 +100,53 @@ function FilterBar({
     setAdvancedMode,
     advancedFilter,
   } = useFilterStore();
+
+  // Filter tags for autocomplete
+  const filteredTags = useMemo(() => {
+    if (!tagFilter) return allTags.slice(0, 10);
+    const filterLower = tagFilter.toLowerCase();
+    return allTags
+      .filter(tag => tag.toLowerCase().includes(filterLower))
+      .slice(0, 10);
+  }, [allTags, tagFilter]);
+
+  // Handle search input change with tag detection
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setFilter('searchText', value || undefined);
+
+    // Check if user is typing a tag
+    const cursorPos = e.target.selectionStart || value.length;
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const hashMatch = textBeforeCursor.match(/#(!?)(\S*)$/);
+
+    if (hashMatch) {
+      setTagFilter(hashMatch[2]);
+      setShowTagAutocomplete(true);
+    } else {
+      setShowTagAutocomplete(false);
+    }
+  };
+
+  // Insert tag from autocomplete
+  const insertTag = (tag: string) => {
+    const value = activeFilters.searchText || '';
+    const cursorPos = searchInputRef.current?.selectionStart || value.length;
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const textAfterCursor = value.substring(cursorPos);
+
+    // Find where the current tag input starts
+    const hashMatch = textBeforeCursor.match(/#(!?)(\S*)$/);
+    if (hashMatch) {
+      const tagStart = cursorPos - hashMatch[0].length;
+      const negatePrefix = hashMatch[1];
+      const newValue = value.substring(0, tagStart) + `#${negatePrefix}${tag}` + textAfterCursor;
+      setFilter('searchText', newValue || undefined);
+    }
+
+    setShowTagAutocomplete(false);
+    searchInputRef.current?.focus();
+  };
 
   const handleSavePreset = () => {
     if (newPresetName.trim()) {
@@ -121,14 +173,48 @@ function FilterBar({
     <div className="p-3 border-b border-inspector-border bg-inspector-surface space-y-2">
       {/* First row: Search, basic filters, and action buttons */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Search - available in both modes */}
-        <input
-          type="text"
-          placeholder="Search URLs, headers, bodies..."
-          value={activeFilters.searchText || ''}
-          onChange={(e) => setFilter('searchText', e.target.value || undefined)}
-          className="px-3 py-1.5 bg-inspector-bg border border-inspector-border rounded text-sm focus:outline-none focus:border-inspector-accent flex-1 min-w-[200px] max-w-[300px]"
-        />
+        {/* Search with tag autocomplete */}
+        <div className="relative flex-1 min-w-[200px] max-w-[300px]">
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search URLs, bodies, #tags..."
+            value={activeFilters.searchText || ''}
+            onChange={handleSearchChange}
+            onBlur={() => setTimeout(() => setShowTagAutocomplete(false), 200)}
+            onKeyDown={(e) => {
+              if (showTagAutocomplete && filteredTags.length > 0) {
+                if (e.key === 'Tab' || e.key === 'Enter') {
+                  e.preventDefault();
+                  insertTag(filteredTags[0]);
+                } else if (e.key === 'Escape') {
+                  setShowTagAutocomplete(false);
+                }
+              }
+            }}
+            className="w-full px-3 py-1.5 bg-inspector-bg border border-inspector-border rounded text-sm focus:outline-none focus:border-inspector-accent"
+          />
+          {/* Tag autocomplete dropdown */}
+          {showTagAutocomplete && filteredTags.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-inspector-surface border border-inspector-border rounded shadow-lg z-20 max-h-48 overflow-y-auto">
+              {filteredTags.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => insertTag(tag)}
+                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-inspector-bg flex items-center gap-2"
+                >
+                  <span className="text-inspector-accent">#</span>
+                  <span>{tag}</span>
+                </button>
+              ))}
+              {allTags.length > filteredTags.length && (
+                <div className="px-3 py-1 text-xs text-inspector-muted border-t border-inspector-border">
+                  {allTags.length - filteredTags.length} more tags...
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Simple filters - only when not in advanced mode */}
         {!advancedMode && (
@@ -585,6 +671,40 @@ function TrafficRow({ flow, isSelected, isChecked, onToggleCheck, onClick }: Tra
         </span>
       )}
 
+      {/* Tags */}
+      {flow.tags && flow.tags.length > 0 && (
+        <div
+          className="flex items-center gap-1 shrink-0"
+          title={flow.tags.join(', ')}
+        >
+          {flow.tags.slice(0, 2).map((tag, i) => (
+            <span
+              key={i}
+              className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs max-w-[80px] truncate"
+            >
+              {tag}
+            </span>
+          ))}
+          {flow.tags.length > 2 && (
+            <span className="text-xs text-inspector-muted">
+              +{flow.tags.length - 2}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Annotation indicator (no tags but has annotation) */}
+      {flow.annotation_id && (!flow.tags || flow.tags.length === 0) && (
+        <span
+          className="shrink-0 text-blue-400"
+          title="Has annotation"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+          </svg>
+        </span>
+      )}
+
       {/* URL */}
       <span className="flex-1 min-w-0 truncate text-sm font-mono">
         {flow.request.host}
@@ -624,11 +744,12 @@ export function TrafficListView() {
     return allTraffic.filter(f => f.hidden).length;
   }, [allTraffic]);
 
-  // Extract unique domains, methods, and providers for filter dropdowns
-  const { domains, methods, providers } = useMemo(() => {
+  // Extract unique domains, methods, providers, and tags for filter dropdowns
+  const { domains, methods, providers, allTags } = useMemo(() => {
     const domainSet = new Set<string>();
     const methodSet = new Set<string>();
     const providerSet = new Set<LLMProvider>();
+    const tagSet = new Set<string>();
 
     allTraffic.forEach((flow) => {
       domainSet.add(flow.request.host);
@@ -636,17 +757,64 @@ export function TrafficListView() {
       if (flow.parsed?.provider) {
         providerSet.add(flow.parsed.provider);
       }
+      // Collect tags
+      if (flow.tags) {
+        for (const tag of flow.tags) {
+          tagSet.add(tag);
+          // Also add parent tags for hierarchical tags
+          const parts = tag.split(':');
+          let current = '';
+          for (const part of parts) {
+            current = current ? `${current}:${part}` : part;
+            tagSet.add(current);
+          }
+        }
+      }
     });
 
     return {
       domains: Array.from(domainSet).sort(),
       methods: Array.from(methodSet).sort(),
       providers: Array.from(providerSet).sort(),
+      allTags: Array.from(tagSet).sort(),
     };
   }, [allTraffic]);
 
+  // Parse search text for #tag syntax
+  // Returns { textSearch: string, tags: { tag: string, negate: boolean }[] }
+  const parseSearchText = useCallback((search: string) => {
+    const tagRegex = /#(!?)(\S+)/g;
+    const tags: { tag: string; negate: boolean }[] = [];
+    let textSearch = search;
+
+    let match;
+    while ((match = tagRegex.exec(search)) !== null) {
+      tags.push({
+        tag: match[2].toLowerCase(),
+        negate: match[1] === '!',
+      });
+    }
+
+    // Remove tag patterns from text search
+    textSearch = search.replace(tagRegex, '').trim();
+
+    return { textSearch, tags };
+  }, []);
+
+  // Check if a flow matches a tag (with prefix matching)
+  const flowMatchesTag = useCallback((flow: TrafficFlow, tag: string): boolean => {
+    if (!flow.tags || flow.tags.length === 0) return false;
+    const tagLower = tag.toLowerCase();
+    return flow.tags.some(t => {
+      const tLower = t.toLowerCase();
+      // Exact match or prefix match (e.g., "refusal" matches "refusal:soft")
+      return tLower === tagLower || tLower.startsWith(tagLower + ':');
+    });
+  }, []);
+
   // Full text search helper - searches URL, headers, and body
-  const matchesSearch = useCallback((flow: TrafficFlow, search: string): boolean => {
+  const matchesTextSearch = useCallback((flow: TrafficFlow, search: string): boolean => {
+    if (!search) return true;
     const searchLower = search.toLowerCase();
 
     // Search URL
@@ -674,6 +842,28 @@ export function TrafficListView() {
 
     return false;
   }, []);
+
+  // Combined search helper - handles both text search and #tag syntax
+  const matchesSearch = useCallback((flow: TrafficFlow, search: string): boolean => {
+    const { textSearch, tags } = parseSearchText(search);
+
+    // Check text search
+    if (textSearch && !matchesTextSearch(flow, textSearch)) return false;
+
+    // Check all tags (AND logic)
+    for (const { tag, negate } of tags) {
+      const matches = flowMatchesTag(flow, tag);
+      if (negate) {
+        // #!tag - must NOT have this tag
+        if (matches) return false;
+      } else {
+        // #tag - must have this tag
+        if (!matches) return false;
+      }
+    }
+
+    return true;
+  }, [parseSearchText, matchesTextSearch, flowMatchesTag]);
 
   // Filter traffic
   const filteredTraffic = useMemo(() => {
@@ -844,6 +1034,7 @@ export function TrafficListView() {
           domains={[]}
           methods={[]}
           providers={[]}
+          allTags={[]}
           onExport={() => {}}
           totalCount={0}
           filteredCount={0}
@@ -874,6 +1065,7 @@ export function TrafficListView() {
         domains={domains}
         methods={methods}
         providers={providers}
+        allTags={allTags}
         onExport={handleExport}
         totalCount={allTraffic.filter(f => !f.hidden).length}
         filteredCount={filteredTraffic.length}

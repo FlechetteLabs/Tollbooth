@@ -121,6 +121,8 @@ export interface TrafficFlow {
   hidden_by_rule?: RuleReference;
   // Annotation reference
   annotation_id?: string;
+  // Tags from annotation (denormalized for easy access)
+  tags?: string[];
   // Replay source (if this flow was created from a replay)
   replay_source?: { variant_id: string; parent_flow_id: string };
 }
@@ -207,7 +209,8 @@ export type TrafficFilterField =
   | 'response_size'
   | 'is_llm_api'
   | 'has_refusal'
-  | 'is_modified';
+  | 'is_modified'
+  | 'has_tag';
 
 // Extended filter condition for traffic view
 export interface TrafficFilterCondition {
@@ -345,6 +348,7 @@ export type FilterConditionField =
   | 'response_size';
 
 export interface FilterCondition {
+  id: string;  // For React keys
   field: FilterConditionField;
   match?: MatchType;
   value?: string;
@@ -435,6 +439,7 @@ export interface RuleAction {
   request_merge_mode?: RequestMergeMode;  // For serve_from_store on requests: how to merge stored data
   static_modification?: StaticModification;
   llm_modification?: LLMModification;
+  tags?: string[];  // Tags to add to matching traffic (works with any action type)
 }
 
 export interface Rule {
