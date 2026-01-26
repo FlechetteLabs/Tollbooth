@@ -189,6 +189,64 @@ export interface TrafficFilterPreset {
   filters: TrafficFilters;
 }
 
+// ============ Advanced Traffic Filtering Types ============
+
+// Scope for conditions - which part of the traffic to match
+export type FilterScope = 'request' | 'response' | 'either';
+
+// Extended filter condition field types for traffic view
+export type TrafficFilterField =
+  | 'host'
+  | 'path'
+  | 'method'
+  | 'header'
+  | 'request_body_contains'
+  | 'request_body_size'
+  | 'status_code'
+  | 'response_body_contains'
+  | 'response_size'
+  | 'is_llm_api'
+  | 'has_refusal'
+  | 'is_modified';
+
+// Extended filter condition for traffic view
+export interface TrafficFilterCondition {
+  id: string;  // For React keys
+  field: TrafficFilterField;
+  scope: FilterScope;
+  match?: MatchType;  // 'exact' | 'contains' | 'regex'
+  value?: string;
+  key?: string;  // For header conditions
+  boolValue?: boolean;  // For boolean fields
+  statusMatch?: StatusCodeMatch;
+  sizeOperator?: 'gt' | 'lt' | 'gte' | 'lte';
+  sizeBytes?: number;
+  negate?: boolean;  // NOT modifier
+}
+
+// Filter group with operator
+export interface TrafficFilterGroup {
+  id: string;
+  operator: FilterOperator;  // 'AND' | 'OR'
+  conditions: TrafficFilterCondition[];
+}
+
+// Complete advanced filter configuration
+export interface AdvancedTrafficFilter {
+  enabled: boolean;
+  operator: FilterOperator;  // Top-level operator between groups
+  groups: TrafficFilterGroup[];
+}
+
+// Updated preset supporting both simple and advanced
+export interface TrafficFilterPresetV2 {
+  id: string;
+  name: string;
+  simpleFilters?: TrafficFilters;
+  advancedFilter?: AdvancedTrafficFilter;
+  isAdvanced: boolean;
+}
+
 // ============ Data Store Types ============
 
 export interface StoredResponseMetadata {

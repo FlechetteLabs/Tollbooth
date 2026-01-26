@@ -8,6 +8,9 @@ import { clsx } from 'clsx';
 import { useAppStore } from '../../stores/appStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { TrafficFlow, LLMProvider } from '../../types';
+import { evaluateAdvancedFilter } from '../../utils/trafficFilterEvaluator';
+import { AdvancedFilterPanel } from './AdvancedFilterPanel';
+import { FilterChips } from './FilterChips';
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 
@@ -54,6 +57,8 @@ interface FilterBarProps {
   onSelectAll: () => void;
   onDeselectAll: () => void;
   hasSelection: boolean;
+  showAdvancedPanel: boolean;
+  onToggleAdvancedPanel: () => void;
 }
 
 function FilterBar({
@@ -70,9 +75,11 @@ function FilterBar({
   onSelectAll,
   onDeselectAll,
   hasSelection,
+  showAdvancedPanel,
+  onToggleAdvancedPanel,
 }: FilterBarProps) {
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showSimpleAdvanced, setShowSimpleAdvanced] = useState(false);
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
 
@@ -84,6 +91,9 @@ function FilterBar({
     savePreset,
     loadPreset,
     deletePreset,
+    advancedMode,
+    setAdvancedMode,
+    advancedFilter,
   } = useFilterStore();
 
   const handleSavePreset = () => {
@@ -94,7 +104,7 @@ function FilterBar({
     }
   };
 
-  const hasActiveFilters = activeFilters.domain ||
+  const hasActiveSimpleFilters = activeFilters.domain ||
     activeFilters.method ||
     activeFilters.llmOnly ||
     activeFilters.searchText ||
@@ -103,11 +113,15 @@ function FilterBar({
     activeFilters.hasRefusal !== undefined ||
     activeFilters.isModified !== undefined;
 
+  const hasActiveAdvancedFilters = advancedFilter.enabled && advancedFilter.groups.length > 0;
+
+  const hasActiveFilters = advancedMode ? hasActiveAdvancedFilters : hasActiveSimpleFilters;
+
   return (
     <div className="p-3 border-b border-inspector-border bg-inspector-surface space-y-2">
       {/* First row: Search, basic filters, and action buttons */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Search */}
+        {/* Search - available in both modes */}
         <input
           type="text"
           placeholder="Search URLs, headers, bodies..."
@@ -116,60 +130,103 @@ function FilterBar({
           className="px-3 py-1.5 bg-inspector-bg border border-inspector-border rounded text-sm focus:outline-none focus:border-inspector-accent flex-1 min-w-[200px] max-w-[300px]"
         />
 
-        {/* Domain filter */}
-        <select
-          value={activeFilters.domain || ''}
-          onChange={(e) => setFilter('domain', e.target.value || undefined)}
-          className="px-2 py-1.5 bg-inspector-bg border border-inspector-border rounded text-sm focus:outline-none focus:border-inspector-accent"
-        >
-          <option value="">All domains</option>
-          {domains.map((domain) => (
-            <option key={domain} value={domain}>
-              {domain}
-            </option>
-          ))}
-        </select>
+        {/* Simple filters - only when not in advanced mode */}
+        {!advancedMode && (
+          <>
+            {/* Domain filter */}
+            <select
+              value={activeFilters.domain || ''}
+              onChange={(e) => setFilter('domain', e.target.value || undefined)}
+              className="px-2 py-1.5 bg-inspector-bg border border-inspector-border rounded text-sm focus:outline-none focus:border-inspector-accent"
+            >
+              <option value="">All domains</option>
+              {domains.map((domain) => (
+                <option key={domain} value={domain}>
+                  {domain}
+                </option>
+              ))}
+            </select>
 
-        {/* Method filter */}
-        <select
-          value={activeFilters.method || ''}
-          onChange={(e) => setFilter('method', e.target.value || undefined)}
-          className="px-2 py-1.5 bg-inspector-bg border border-inspector-border rounded text-sm focus:outline-none focus:border-inspector-accent"
-        >
-          <option value="">All methods</option>
-          {methods.map((method) => (
-            <option key={method} value={method}>
-              {method}
-            </option>
-          ))}
-        </select>
+            {/* Method filter */}
+            <select
+              value={activeFilters.method || ''}
+              onChange={(e) => setFilter('method', e.target.value || undefined)}
+              className="px-2 py-1.5 bg-inspector-bg border border-inspector-border rounded text-sm focus:outline-none focus:border-inspector-accent"
+            >
+              <option value="">All methods</option>
+              {methods.map((method) => (
+                <option key={method} value={method}>
+                  {method}
+                </option>
+              ))}
+            </select>
 
-        {/* LLM only toggle */}
-        <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-          <input
-            type="checkbox"
-            checked={activeFilters.llmOnly || false}
-            onChange={(e) => setFilter('llmOnly', e.target.checked || undefined)}
-            className="w-4 h-4 rounded border-inspector-border"
-          />
-          <span>LLM only</span>
-        </label>
+            {/* LLM only toggle */}
+            <label className="flex items-center gap-1.5 cursor-pointer text-sm">
+              <input
+                type="checkbox"
+                checked={activeFilters.llmOnly || false}
+                onChange={(e) => setFilter('llmOnly', e.target.checked || undefined)}
+                className="w-4 h-4 rounded border-inspector-border"
+              />
+              <span>LLM only</span>
+            </label>
 
-        {/* Advanced filters toggle */}
+            {/* Simple advanced filters toggle */}
+            <button
+              onClick={() => setShowSimpleAdvanced(!showSimpleAdvanced)}
+              className={clsx(
+                'px-2 py-1.5 text-sm rounded transition-colors flex items-center gap-1',
+                showSimpleAdvanced
+                  ? 'bg-inspector-accent text-white'
+                  : 'bg-inspector-bg border border-inspector-border hover:bg-inspector-border'
+              )}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+              More
+            </button>
+          </>
+        )}
+
+        {/* Advanced mode toggle */}
         <button
-          onClick={() => setShowAdvanced(!showAdvanced)}
+          onClick={() => {
+            setAdvancedMode(!advancedMode);
+            if (!advancedMode) {
+              onToggleAdvancedPanel();
+            }
+          }}
           className={clsx(
             'px-2 py-1.5 text-sm rounded transition-colors flex items-center gap-1',
-            showAdvanced
-              ? 'bg-inspector-accent text-white'
+            advancedMode
+              ? 'bg-purple-500 text-white'
               : 'bg-inspector-bg border border-inspector-border hover:bg-inspector-border'
           )}
+          title={advancedMode ? 'Switch to simple filters' : 'Switch to advanced filters'}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
           </svg>
-          More
+          {advancedMode ? 'Advanced' : 'Advanced'}
         </button>
+
+        {/* Show/hide advanced panel (only when in advanced mode) */}
+        {advancedMode && (
+          <button
+            onClick={onToggleAdvancedPanel}
+            className={clsx(
+              'px-2 py-1.5 text-sm rounded transition-colors',
+              showAdvancedPanel
+                ? 'bg-inspector-accent text-white'
+                : 'bg-inspector-bg border border-inspector-border hover:bg-inspector-border'
+            )}
+            title={showAdvancedPanel ? 'Hide filter panel' : 'Show filter panel'}
+          >
+            {showAdvancedPanel ? 'Hide Panel' : 'Edit Filters'}
+          </button>
+        )}
 
         {/* Clear filters */}
         {hasActiveFilters && (
@@ -228,9 +285,14 @@ function FilterBar({
                           loadPreset(preset.id);
                           setShowPresetMenu(false);
                         }}
-                        className="flex-1 text-left text-sm truncate"
+                        className="flex-1 text-left text-sm truncate flex items-center gap-2"
                       >
-                        {preset.name}
+                        <span className="truncate">{preset.name}</span>
+                        {preset.isAdvanced && (
+                          <span className="px-1 py-0.5 text-xs bg-purple-500/20 text-purple-400 rounded shrink-0">
+                            Adv
+                          </span>
+                        )}
                       </button>
                       <button
                         onClick={() => deletePreset(preset.id)}
@@ -283,8 +345,8 @@ function FilterBar({
         </div>
       </div>
 
-      {/* Advanced filters row */}
-      {showAdvanced && (
+      {/* Simple advanced filters row (when not in advanced mode) */}
+      {!advancedMode && showSimpleAdvanced && (
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-inspector-border/50">
           {/* Status code filter */}
           <select
@@ -336,6 +398,21 @@ function FilterBar({
           </label>
 
           {/* Show hidden toggle */}
+          <label className="flex items-center gap-1.5 cursor-pointer text-sm ml-auto">
+            <input
+              type="checkbox"
+              checked={activeFilters.showHidden || false}
+              onChange={(e) => setFilter('showHidden', e.target.checked || undefined)}
+              className="w-4 h-4 rounded border-inspector-border"
+            />
+            <span>Show hidden ({hiddenCount})</span>
+          </label>
+        </div>
+      )}
+
+      {/* Show hidden toggle for advanced mode */}
+      {advancedMode && (
+        <div className="flex items-center gap-2 pt-2 border-t border-inspector-border/50">
           <label className="flex items-center gap-1.5 cursor-pointer text-sm ml-auto">
             <input
               type="checkbox"
@@ -529,10 +606,13 @@ function TrafficRow({ flow, isSelected, isChecked, onToggleCheck, onClick }: Tra
 
 export function TrafficListView() {
   const { traffic, selectedTrafficId, setSelectedTrafficId, removeTraffic } = useAppStore();
-  const { activeFilters } = useFilterStore();
+  const { activeFilters, advancedFilter, advancedMode } = useFilterStore();
 
   // Selection state for bulk operations
   const [selectedFlowIds, setSelectedFlowIds] = useState<Set<string>>(new Set());
+
+  // Advanced panel visibility
+  const [showAdvancedPanel, setShowAdvancedPanel] = useState(false);
 
   // Get all traffic as array
   const allTraffic = useMemo(() => {
@@ -598,14 +678,21 @@ export function TrafficListView() {
   // Filter traffic
   const filteredTraffic = useMemo(() => {
     return allTraffic.filter((flow) => {
-      // Hidden filter
+      // Hidden filter - always check
       if (!activeFilters.showHidden && flow.hidden) return false;
 
-      // Basic filters
+      // Search text - always applied
+      if (activeFilters.searchText && !matchesSearch(flow, activeFilters.searchText)) return false;
+
+      // Use advanced filter when in advanced mode
+      if (advancedMode && advancedFilter.enabled) {
+        return evaluateAdvancedFilter(flow, advancedFilter);
+      }
+
+      // Simple filters when not in advanced mode
       if (activeFilters.domain && flow.request.host !== activeFilters.domain) return false;
       if (activeFilters.method && flow.request.method !== activeFilters.method) return false;
       if (activeFilters.llmOnly && !flow.is_llm_api) return false;
-      if (activeFilters.searchText && !matchesSearch(flow, activeFilters.searchText)) return false;
 
       // Status code filter
       if (activeFilters.statusCode) {
@@ -630,7 +717,7 @@ export function TrafficListView() {
 
       return true;
     });
-  }, [allTraffic, activeFilters, matchesSearch]);
+  }, [allTraffic, activeFilters, advancedFilter, advancedMode, matchesSearch]);
 
   // Toggle selection for a flow
   const toggleSelection = useCallback((flowId: string, e: React.MouseEvent) => {
@@ -767,6 +854,8 @@ export function TrafficListView() {
           onSelectAll={() => {}}
           onDeselectAll={() => {}}
           hasSelection={false}
+          showAdvancedPanel={showAdvancedPanel}
+          onToggleAdvancedPanel={() => setShowAdvancedPanel(!showAdvancedPanel)}
         />
         <div className="flex-1 flex items-center justify-center text-inspector-muted">
           <div className="text-center">
@@ -795,7 +884,19 @@ export function TrafficListView() {
         onSelectAll={selectAll}
         onDeselectAll={deselectAll}
         hasSelection={selectedFlowIds.size > 0}
+        showAdvancedPanel={showAdvancedPanel}
+        onToggleAdvancedPanel={() => setShowAdvancedPanel(!showAdvancedPanel)}
       />
+
+      {/* Filter chips for advanced mode */}
+      <FilterChips />
+
+      {/* Advanced filter panel */}
+      {advancedMode && showAdvancedPanel && (
+        <div className="p-3 border-b border-inspector-border bg-inspector-bg">
+          <AdvancedFilterPanel onClose={() => setShowAdvancedPanel(false)} />
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         {filteredTraffic.length === 0 ? (

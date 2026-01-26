@@ -9,12 +9,15 @@ A transparent proxy system for inspecting, debugging, and modifying traffic from
   - Full request/response headers and body capture
   - Configurable body size limits for non-LLM traffic
 
-- **Rich Traffic Filtering**: Advanced filtering with saved presets
-  - Filter by domain, method, status code, LLM-only, provider, refusal status, and modification state
+- **Rich Traffic Filtering**: Advanced filtering with AND/OR logic and saved presets
+  - **Simple mode**: Filter by domain, method, status code, LLM-only, provider, refusal status, and modification state
+  - **Advanced mode**: Build complex filters with AND/OR groups, multiple conditions, and NOT modifiers
+  - Filter fields: host, path, method, headers, body content, body size, status code
+  - Match types: exact, contains, regex with scope selection (request/response/either)
   - Full-text search across headers and body content
-  - Save and load named filter presets (persisted to localStorage)
+  - Save and load named filter presets (supports both simple and advanced)
+  - Filter chips display active conditions with quick removal
   - Hide traffic (filter out but keep data) and Clear traffic (delete permanently)
-  - Show/hide hidden traffic with toggle
   - Bulk operations: select multiple flows to hide or clear
 
 - **LLM API Parsing**: Automatically parses Anthropic, OpenAI (including Codex CLI), and Google API calls into structured conversations
@@ -198,12 +201,26 @@ The main view showing all HTTP/HTTPS traffic flowing through the proxy.
 - Full-text search across headers and body content
 
 **Filtering:**
+
+*Simple Mode:*
 - Filter by domain, method, status code, LLM-only, provider
 - Filter by refusal status (has refusal detection result)
 - Filter by modification state (request/response was modified)
 - Toggle "Show Hidden" to include hidden traffic
-- **Save Presets**: Save current filter configuration with a name
+
+*Advanced Mode:*
+- Click "Advanced" to switch to advanced filtering
+- Create filter groups with AND/OR logic between conditions
+- Available fields: Host, Path, Method, Headers, Body Contains, Body Size, Status Code
+- Match types: exact, contains, regex
+- Scope selection: Request, Response, or Either (for applicable fields)
+- NOT modifier to negate any condition
+- Filter chips show active conditions with one-click removal
+
+*Presets:*
+- **Save Presets**: Save current filter configuration (simple or advanced) with a name
 - **Load Presets**: Quickly restore saved filter configurations
+- Advanced presets are marked with "Adv" badge
 
 **Bulk Actions:**
 - Multi-select using checkboxes
