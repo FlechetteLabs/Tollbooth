@@ -9,6 +9,14 @@ A transparent proxy system for inspecting, debugging, and modifying traffic from
   - Full request/response headers and body capture
   - Configurable body size limits for non-LLM traffic
 
+- **Rich Traffic Filtering**: Advanced filtering with saved presets
+  - Filter by domain, method, status code, LLM-only, provider, refusal status, and modification state
+  - Full-text search across headers and body content
+  - Save and load named filter presets (persisted to localStorage)
+  - Hide traffic (filter out but keep data) and Clear traffic (delete permanently)
+  - Show/hide hidden traffic with toggle
+  - Bulk operations: select multiple flows to hide or clear
+
 - **LLM API Parsing**: Automatically parses Anthropic, OpenAI (including Codex CLI), and Google API calls into structured conversations
   - Provider-specific parsers for Claude, GPT, Gemini, and Codex CLI APIs
   - Extracts messages, system prompts, tool definitions, and model parameters
@@ -28,11 +36,13 @@ A transparent proxy system for inspecting, debugging, and modifying traffic from
 
 - **Rules Engine**: Automate traffic manipulation with pattern-based rules
   - Filter by host, path, method, headers, status code, body content, and response size
-  - Actions: Passthrough, Intercept, Serve from Data Store, Modify Body & Headers, LLM Modification
+  - **AND/OR Logic**: Group conditions with AND/OR operators for complex matching
+  - Actions: Passthrough, Intercept, Serve from Data Store, Modify Body & Headers, LLM Modification, Auto-Hide, Auto-Clear
   - Dynamic variables: `{{timestamp}}`, `{{uuid}}`, `{{request.host}}`, `{{env:VAR}}`
   - Multi-response modes: Single, Round Robin, Random, Sequential
   - Built-in rule testing with filter match visualization
   - Import/export rules as JSON, create from templates
+  - **Short IDs**: Rules get permanent short IDs (r1, r2, r3...) for easy reference
 
 - **LLM-Powered Modifications**: Use AI to dynamically generate or transform traffic
   - Two generation modes: Generate Once (cached) or Generate Live (every request)
@@ -46,6 +56,23 @@ A transparent proxy system for inspecting, debugging, and modifying traffic from
   - Usage tracking shows which rules reference each entry
   - Transform entries with LLM for variations
   - Persisted to disk in `./datastore/` directory
+  - **Short IDs**: Responses get ds1, ds2...; Requests get rq1, rq2... for easy reference
+
+- **Replay View**: Test API endpoints with request variants
+  - Create variants from any captured traffic flow
+  - Edit request method, URL, headers, and body
+  - Name replays for easy identification
+  - Execute replays and view responses
+  - **Intercept on Replay**: Option to intercept and modify responses before completion
+  - Track replay history and results
+  - Create variant chains (variants from variants)
+
+- **Traffic Annotations**: Add notes and tags to traffic flows
+  - Git commit-style annotations with title and body (markdown supported)
+  - Hierarchical tagging with colon-separated sub-tags (e.g., `refusal:soft`, `test:regression`)
+  - Tag autocomplete from existing tags
+  - Search and filter by tags
+  - Persists across all views (Traffic, Conversations, Replay)
 
 - **LLM Chat**: Built-in chat interface with multi-provider support
   - Supports Anthropic, OpenAI, Google, and Ollama (local models)
@@ -158,7 +185,7 @@ See the agent-specific instructions below.
 
 ## Using the Web UI
 
-The web UI consists of seven main views accessible from the sidebar.
+The web UI consists of nine main views accessible from the sidebar.
 
 ### Traffic View
 
@@ -167,8 +194,21 @@ The main view showing all HTTP/HTTPS traffic flowing through the proxy.
 **Left Panel - Traffic List:**
 - All requests with method, URL, status code, and timestamp
 - Purple "LLM" badge indicates requests to known LLM API endpoints (Anthropic, OpenAI, Google, Codex CLI)
+- Blue "Replay" badge indicates traffic from replay requests
 - Full-text search across headers and body content
-- Filter by LLM API calls only
+
+**Filtering:**
+- Filter by domain, method, status code, LLM-only, provider
+- Filter by refusal status (has refusal detection result)
+- Filter by modification state (request/response was modified)
+- Toggle "Show Hidden" to include hidden traffic
+- **Save Presets**: Save current filter configuration with a name
+- **Load Presets**: Quickly restore saved filter configurations
+
+**Bulk Actions:**
+- Multi-select using checkboxes
+- **Hide Selected**: Hide selected flows (can be shown later with "Show Hidden")
+- **Clear Selected**: Permanently delete selected flows
 
 **Right Panel - Traffic Details:**
 - **Headers Tab**: Request and response headers
@@ -187,10 +227,18 @@ When traffic has been modified (by rules or manual intercept):
 - Diff view highlights changes between original and modified content
 - Yellow banner indicates when viewing modified content
 
+**Annotations:**
+- Click the annotation icon to add notes to any traffic flow
+- Title field for quick identification
+- Body field supports markdown for detailed notes
+- Add hierarchical tags (e.g., `test:regression`, `bug:api`)
+- Tags autocomplete from previously used tags
+
 **Actions:**
 - **Save to Datastore**: Save the current request or response to the data store
 - **Save as Rule**: Create a rule from the current traffic pattern
 - **Mock This Endpoint**: One-click action that saves the response to datastore and creates a rule to serve it (combines save + rule creation)
+- **Create Variant**: Create a replay variant from this traffic (opens Replay view)
 
 ### Conversations View
 
@@ -296,13 +344,25 @@ Rules are evaluated in order (top to bottom). Drag and drop to reorder rules.
    - Name: Descriptive name for the rule
    - Direction: Request or Response
    - Enabled: Toggle to enable/disable
+   - Short ID: Automatically assigned (r1, r2, r3...) for easy reference
 
-2. **Filters (all must match):**
+2. **Filters (AND/OR Logic):**
+
+   Rules support complex filter logic with grouped conditions:
+
+   - **Filter Groups**: Create multiple groups of conditions
+   - **Group Operator**: Each group uses AND or OR to combine its conditions
+   - **Top-level Operator**: Groups are combined with AND or OR
+
+   Example: Match `(host contains "api.anthropic.com" AND method = "POST") OR (path contains "/v1/messages")`
+
+   **Available Conditions:**
    - **Host**: Match by hostname (exact, contains, or regex)
    - **Path**: Match by URL path (exact, contains, or regex)
    - **Method**: Match by HTTP method (exact, contains, or regex)
    - **Header**: Match by header key and value
    - **LLM API**: Filter to LLM API traffic only, non-LLM only, or any
+   - **Negate**: Invert any condition with NOT
 
 3. **Response Filters (response rules only):**
    - **Status Code**: Match by exact code (200), range (>=400, 4xx, 400-499), or list (500,502,503)
@@ -316,6 +376,8 @@ Rules are evaluated in order (top to bottom). Drag and drop to reorder rules.
    - **Serve from Data Store**: Return a stored response instead of forwarding
    - **Modify Body & Headers**: Apply automatic modifications
    - **LLM Modification**: Use LLM to modify content (experimental)
+   - **Auto-Hide**: Automatically hide matching traffic from view
+   - **Auto-Clear**: Automatically delete matching traffic
 
 **Modify Body & Headers Action:**
 - **Replace Body**: Completely replace the body content
@@ -405,6 +467,46 @@ Pending refusals auto-forward after 5 minutes to prevent hangs.
 Traffic and conversation views show badges when refusals are detected:
 - Orange "Refusal" badge: Refusal detected but not modified
 - Purple "Modified" badge: Refusal was detected and response was replaced
+
+### Replay View
+
+Create and execute request variants to test API behavior with modified inputs.
+
+**Left Panel - Replay Tree:**
+- List of all original flows that have variants
+- Expandable tree showing variants under each flow
+- Name each replay for easy identification
+- Visual indicators for replay status (pending, sent, completed, failed)
+
+**Creating a Variant:**
+
+1. From Traffic view, click "Create Variant" on any flow, or
+2. In Replay view, click "New Variant" on an existing flow
+
+**Variant Editor:**
+- **Name**: Give the variant a descriptive name
+- **Description**: Document what this variant tests
+- **Method**: Change HTTP method (GET, POST, etc.)
+- **URL**: Modify the target URL
+- **Headers**: Edit request headers
+- **Body**: Modify request body
+- **Intercept on Replay**: Toggle to intercept and modify the response when executed
+
+**Executing Replays:**
+
+1. Select a variant in the tree
+2. Click "Send" to execute the replay
+3. If "Intercept on Replay" is enabled:
+   - Response appears in the Intercept queue
+   - Edit response before forwarding
+   - Response is then recorded in the variant result
+4. View results in the variant detail panel
+
+**Use Cases:**
+- Test how APIs respond to different inputs
+- Reproduce and debug specific scenarios
+- Compare responses between variants
+- Test error handling with modified requests
 
 ### LLM Chat View
 
@@ -923,6 +1025,42 @@ The backend exposes a REST API at `localhost:2000`:
 | `/api/settings/llm-status` | GET | Check if LLM is configured |
 | `/api/chat` | POST | Send chat message |
 | `/api/chat/complete` | POST | Simple completion |
+
+### Traffic Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/traffic/:flowId/hide` | POST | Hide a traffic flow |
+| `/api/traffic/:flowId/unhide` | POST | Unhide a traffic flow |
+| `/api/traffic/hide-bulk` | POST | Hide multiple flows |
+| `/api/traffic/:flowId` | DELETE | Delete a traffic flow |
+| `/api/traffic/clear-bulk` | DELETE | Delete multiple flows |
+
+### Replay
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/replay` | GET | List all replay variants |
+| `/api/replay/tree/:flowId` | GET | Get variant tree for a flow |
+| `/api/replay` | POST | Create a new variant |
+| `/api/replay/:id` | GET | Get a single variant |
+| `/api/replay/:id` | PUT | Update a variant |
+| `/api/replay/:id` | DELETE | Delete a variant |
+| `/api/replay/:id/send` | POST | Execute a replay |
+| `/api/replay/names/:flowId` | GET | Get replay name for a flow |
+| `/api/replay/names/:flowId` | PUT | Set replay name for a flow |
+
+### Annotations
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/annotations` | GET | List annotations (filter by target) |
+| `/api/annotations/:id` | GET | Get single annotation |
+| `/api/annotations/target/:type/:targetId` | GET | Get annotation for a target |
+| `/api/annotations` | POST | Create annotation |
+| `/api/annotations/:id` | PUT | Update annotation |
+| `/api/annotations/:id` | DELETE | Delete annotation |
+| `/api/annotations/tags` | GET | Get all unique tags (for autocomplete) |
 
 ### URL Log
 
