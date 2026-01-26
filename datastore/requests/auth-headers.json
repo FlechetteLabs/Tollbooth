@@ -1,6 +1,7 @@
 {
   "metadata": {
-    "created_at": 1769015932393
+    "created_at": 1769015932393,
+    "shortId": "rq1"
   },
   "method": "GET",
   "url": "https://httpbin.org/headers",

@@ -1,7 +1,8 @@
 {
   "metadata": {
     "created_at": 1769031591751,
-    "description": "LLM cache for rule: Replace president from list of presidents wiki (Copy)"
+    "description": "LLM cache for rule: Replace president from list of presidents wiki (Copy)",
+    "shortId": "ds3"
   },
   "status_code": 200,
   "headers": {
