@@ -1338,6 +1338,14 @@ app.post('/api/annotations', async (req, res) => {
       tags,
     });
 
+    // Sync annotation to traffic flow if target is traffic
+    if (target_type === 'traffic') {
+      storage.updateTraffic(target_id, {
+        annotation_id: annotation.id,
+        tags: annotation.tags,
+      });
+    }
+
     res.json({ success: true, annotation });
   } catch (err: any) {
     console.error('Failed to create annotation:', err);
@@ -1355,6 +1363,13 @@ app.put('/api/annotations/:id', async (req, res) => {
       return res.status(404).json({ error: 'Annotation not found' });
     }
 
+    // Sync tags to traffic flow if target is traffic
+    if (annotation.target_type === 'traffic') {
+      storage.updateTraffic(annotation.target_id, {
+        tags: annotation.tags,
+      });
+    }
+
     res.json({ success: true, annotation });
   } catch (err: any) {
     console.error('Failed to update annotation:', err);
@@ -1365,10 +1380,22 @@ app.put('/api/annotations/:id', async (req, res) => {
 // Delete annotation
 app.delete('/api/annotations/:id', async (req, res) => {
   try {
+    // Get annotation first to know target
+    const annotation = annotationsManager.get(req.params.id);
+
     const deleted = await annotationsManager.delete(req.params.id);
     if (!deleted) {
       return res.status(404).json({ error: 'Annotation not found' });
     }
+
+    // Clear tags from traffic flow if target was traffic
+    if (annotation && annotation.target_type === 'traffic') {
+      storage.updateTraffic(annotation.target_id, {
+        annotation_id: undefined,
+        tags: undefined,
+      });
+    }
+
     res.json({ success: true });
   } catch (err: any) {
     console.error('Failed to delete annotation:', err);
