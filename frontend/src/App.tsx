@@ -11,6 +11,7 @@ import { ConversationListView } from './components/conversation/ConversationList
 import { ConversationDetailView } from './components/conversation/ConversationDetailView';
 import { InterceptQueueView } from './components/intercept/InterceptQueueView';
 import { PendingRefusalsView } from './components/refusal/PendingRefusalsView';
+import { ReplayView } from './components/replay/ReplayView';
 import { DataStoreView } from './components/data-store/DataStoreView';
 import { RulesView } from './components/rules/RulesView';
 import { ChatView } from './components/chat/ChatView';
@@ -49,6 +50,9 @@ function MainContent() {
 
     case 'refusals':
       return <PendingRefusalsView />;
+
+    case 'replay':
+      return <ReplayView />;
 
     case 'data-store':
       return <DataStoreView />;

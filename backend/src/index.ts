@@ -39,8 +39,10 @@ import { settingsManager, Settings } from './settings';
 import { createLLMClient, ChatMessage, fetchModelsForProvider, STATIC_MODELS } from './llm-client';
 import { LLMProvider, ConfigurableLLMProvider, DEFAULT_BASE_URLS } from './settings';
 import { refusalManager } from './refusal';
-import { RefusalRule, PendingRefusal } from './types';
+import { RefusalRule, PendingRefusal, Annotation, AnnotationTargetType, ReplayVariant } from './types';
 import { shortIdRegistry } from './short-id-registry';
+import { annotationsManager } from './annotations';
+import { replayManager } from './replay';
 
 // Configuration
 const REST_PORT = parseInt(process.env.REST_PORT || '3000', 10);
@@ -1254,6 +1256,217 @@ app.post('/api/chat/complete', async (req, res) => {
   } catch (err: any) {
     console.error('Completion error:', err);
     res.status(500).json({ error: err.message || 'Completion request failed' });
+  }
+});
+
+// ============ Annotations API Routes ============
+
+// List annotations (with optional filters)
+app.get('/api/annotations', (req, res) => {
+  const filter: { target_type?: AnnotationTargetType; tag?: string; search?: string } = {};
+  if (req.query.target_type) filter.target_type = req.query.target_type as AnnotationTargetType;
+  if (req.query.tag) filter.tag = req.query.tag as string;
+  if (req.query.search) filter.search = req.query.search as string;
+
+  const annotations = annotationsManager.getAll(Object.keys(filter).length > 0 ? filter : undefined);
+  res.json({ annotations, total: annotations.length });
+});
+
+// Get all unique tags (for autocomplete)
+app.get('/api/annotations/tags', (req, res) => {
+  const tags = annotationsManager.getAllTags();
+  res.json({ tags });
+});
+
+// Get annotation for a specific target
+app.get('/api/annotations/target/:type/:targetId', (req, res) => {
+  const { type, targetId } = req.params;
+  const annotation = annotationsManager.getForTarget(type as AnnotationTargetType, targetId);
+  if (!annotation) {
+    return res.status(404).json({ error: 'Annotation not found' });
+  }
+  res.json(annotation);
+});
+
+// Get single annotation
+app.get('/api/annotations/:id', (req, res) => {
+  const annotation = annotationsManager.get(req.params.id);
+  if (!annotation) {
+    return res.status(404).json({ error: 'Annotation not found' });
+  }
+  res.json(annotation);
+});
+
+// Create annotation
+app.post('/api/annotations', async (req, res) => {
+  try {
+    const { target_type, target_id, title, body, tags } = req.body;
+
+    if (!target_type || !target_id || !title) {
+      return res.status(400).json({ error: 'target_type, target_id, and title are required' });
+    }
+
+    const annotation = await annotationsManager.create({
+      target_type,
+      target_id,
+      title,
+      body,
+      tags,
+    });
+
+    res.json({ success: true, annotation });
+  } catch (err: any) {
+    console.error('Failed to create annotation:', err);
+    res.status(500).json({ error: err.message || 'Failed to create annotation' });
+  }
+});
+
+// Update annotation
+app.put('/api/annotations/:id', async (req, res) => {
+  try {
+    const { title, body, tags } = req.body;
+    const annotation = await annotationsManager.update(req.params.id, { title, body, tags });
+
+    if (!annotation) {
+      return res.status(404).json({ error: 'Annotation not found' });
+    }
+
+    res.json({ success: true, annotation });
+  } catch (err: any) {
+    console.error('Failed to update annotation:', err);
+    res.status(500).json({ error: err.message || 'Failed to update annotation' });
+  }
+});
+
+// Delete annotation
+app.delete('/api/annotations/:id', async (req, res) => {
+  try {
+    const deleted = await annotationsManager.delete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Annotation not found' });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Failed to delete annotation:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete annotation' });
+  }
+});
+
+// ============ Replay API Routes ============
+
+// List all variants
+app.get('/api/replay', (req, res) => {
+  const variants = replayManager.getAll();
+  res.json({ variants, total: variants.length });
+});
+
+// Get variant tree for a flow
+app.get('/api/replay/tree/:flowId', (req, res) => {
+  const tree = replayManager.getVariantTree(req.params.flowId);
+  res.json(tree);
+});
+
+// Get variants for a flow (flat list)
+app.get('/api/replay/flow/:flowId', (req, res) => {
+  const variants = replayManager.getForFlow(req.params.flowId);
+  res.json({ variants, total: variants.length });
+});
+
+// Check if flow has variants
+app.get('/api/replay/flow/:flowId/exists', (req, res) => {
+  const hasVariants = replayManager.hasVariants(req.params.flowId);
+  const count = replayManager.getVariantCount(req.params.flowId);
+  res.json({ has_variants: hasVariants, count });
+});
+
+// Get single variant
+app.get('/api/replay/:id', (req, res) => {
+  const variant = replayManager.get(req.params.id);
+  if (!variant) {
+    return res.status(404).json({ error: 'Variant not found' });
+  }
+  res.json(variant);
+});
+
+// Create variant from flow
+app.post('/api/replay', async (req, res) => {
+  try {
+    const { parent_flow_id, parent_variant_id, request, description, intercept_on_replay } = req.body;
+
+    if (!parent_flow_id || !request || !description) {
+      return res.status(400).json({ error: 'parent_flow_id, request, and description are required' });
+    }
+
+    const variant = await replayManager.create({
+      parent_flow_id,
+      parent_variant_id,
+      request,
+      description,
+      intercept_on_replay,
+    });
+
+    res.json({ success: true, variant });
+  } catch (err: any) {
+    console.error('Failed to create variant:', err);
+    res.status(500).json({ error: err.message || 'Failed to create variant' });
+  }
+});
+
+// Update variant
+app.put('/api/replay/:id', async (req, res) => {
+  try {
+    const { description, request, intercept_on_replay } = req.body;
+    const variant = await replayManager.update(req.params.id, { description, request, intercept_on_replay });
+
+    if (!variant) {
+      return res.status(404).json({ error: 'Variant not found' });
+    }
+
+    res.json({ success: true, variant });
+  } catch (err: any) {
+    console.error('Failed to update variant:', err);
+    res.status(500).json({ error: err.message || 'Failed to update variant' });
+  }
+});
+
+// Delete variant
+app.delete('/api/replay/:id', async (req, res) => {
+  try {
+    const deleteChildren = req.query.deleteChildren === 'true';
+    const deleted = await replayManager.delete(req.params.id, deleteChildren);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Variant not found' });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Failed to delete variant:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete variant' });
+  }
+});
+
+// Execute replay (send variant request)
+app.post('/api/replay/:id/send', async (req, res) => {
+  try {
+    const variant = replayManager.get(req.params.id);
+    if (!variant) {
+      return res.status(404).json({ error: 'Variant not found' });
+    }
+
+    // Mark as sent
+    await replayManager.markSent(variant.variant_id);
+
+    // TODO: Actually send the request through the proxy
+    // For now, we just mark it as sent and return
+    // The actual replay execution will need proxy integration
+
+    res.json({
+      success: true,
+      message: 'Replay initiated',
+      variant: replayManager.get(variant.variant_id),
+    });
+  } catch (err: any) {
+    console.error('Failed to send replay:', err);
+    res.status(500).json({ error: err.message || 'Failed to send replay' });
   }
 });
 

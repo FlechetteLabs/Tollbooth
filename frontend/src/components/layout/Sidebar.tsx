@@ -85,6 +85,7 @@ export function Sidebar() {
           icon="🛡️"
           badge={pendingRefusals.size}
         />
+        <NavItem view="replay" label="Replay" icon="🔄" />
         <NavItem view="data-store" label="Data Store" icon="💾" />
         <NavItem view="rules" label="Rules" icon="⚙️" />
         <NavItem view="chat" label="LLM Chat" icon="🤖" />

@@ -5,9 +5,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import { clsx } from 'clsx';
 import { useAppStore, DisplayMode } from '../../stores/appStore';
-import { TrafficFlow } from '../../types';
+import { TrafficFlow, ReplayVariant } from '../../types';
 import { DisplayModeToggle, formatContent } from '../shared/DisplayModeToggle';
 import { GenerateMockModal } from '../shared/GenerateMockModal';
+import { AnnotationPanel } from '../shared/AnnotationPanel';
+import { CreateVariantModal } from '../replay/CreateVariantModal';
 
 type Tab = 'request' | 'response' | 'parsed';
 type ViewMode = 'modified' | 'original' | 'diff';
@@ -547,6 +549,7 @@ export function TrafficDetailView() {
   const [mockingEndpoint, setMockingEndpoint] = useState(false);
   const [mockSuccess, setMockSuccess] = useState<string | null>(null);
   const [showGenerateMock, setShowGenerateMock] = useState(false);
+  const [showCreateVariant, setShowCreateVariant] = useState(false);
 
   // Mock endpoint handler - saves response to datastore and creates rule in one action
   const handleMockEndpoint = async (flow: TrafficFlow) => {
@@ -768,6 +771,18 @@ export function TrafficDetailView() {
             </div>
           </div>
 
+          {/* Create Replay Variant */}
+          <button
+            onClick={() => setShowCreateVariant(true)}
+            className="text-xs px-2 py-1 bg-inspector-surface border border-inspector-border rounded text-inspector-muted hover:text-inspector-text hover:border-inspector-accent flex items-center gap-1"
+            title="Create replay variant"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Replay
+          </button>
+
           <button
             onClick={() => setSelectedTrafficId(null)}
             className="text-inspector-muted hover:text-inspector-text"
@@ -880,6 +895,15 @@ export function TrafficDetailView() {
           displayMode={displayMode}
           viewMode={activeTab === 'request' ? requestViewMode : responseViewMode}
         />
+
+        {/* Annotation Panel */}
+        <div className="mt-4">
+          <AnnotationPanel
+            targetType="traffic"
+            targetId={flow.flow_id}
+            defaultCollapsed={true}
+          />
+        </div>
       </div>
 
       {/* Save to Datastore Modal */}
@@ -915,6 +939,19 @@ export function TrafficDetailView() {
           onSuccess={(datastoreKey) => {
             setShowGenerateMock(false);
             setMockSuccess(`Mock created with key: ${datastoreKey}`);
+            setTimeout(() => setMockSuccess(null), 5000);
+          }}
+        />
+      )}
+
+      {/* Create Variant Modal */}
+      {showCreateVariant && (
+        <CreateVariantModal
+          flow={flow}
+          onClose={() => setShowCreateVariant(false)}
+          onCreated={() => {
+            setShowCreateVariant(false);
+            setMockSuccess('Replay variant created! View it in the Replay tab.');
             setTimeout(() => setMockSuccess(null), 5000);
           }}
         />
