@@ -8,7 +8,7 @@ interface CreateVariantModalProps {
   onCreated: (variant: ReplayVariant) => void;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 
 export const CreateVariantModal: React.FC<CreateVariantModalProps> = ({
   flow,

@@ -10,7 +10,7 @@ interface AnnotationPanelProps {
   defaultCollapsed?: boolean;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 
 export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
   targetType,

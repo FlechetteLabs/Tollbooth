@@ -3,7 +3,7 @@ import { ReplayVariant, TrafficFlow } from '../../types';
 import { CreateVariantModal } from './CreateVariantModal';
 import { AnnotationPanel } from '../shared/AnnotationPanel';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 
 interface VariantWithChildren extends ReplayVariant {
   children?: VariantWithChildren[];

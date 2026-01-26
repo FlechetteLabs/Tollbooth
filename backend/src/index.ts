@@ -52,12 +52,19 @@ const WS_MAX_PAYLOAD = parseInt(process.env.WS_MAX_PAYLOAD || String(200 * 1024 
 
 // Express app for REST API
 const app = express();
-app.use(cors({
+
+// CORS configuration
+const corsOptions = {
   origin: true,  // Allow all origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
-}));
+};
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
+
 app.use(express.json({ limit: '50mb' }));
 
 // Frontend WebSocket clients
