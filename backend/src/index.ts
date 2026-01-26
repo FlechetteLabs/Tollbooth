@@ -21,6 +21,7 @@ import {
   StoredResponse,
   StoredRequest,
   RequestModifiedData,
+  PendingIntercept,
 } from './types';
 import { storage } from './storage';
 import { parseRequest, parseResponse } from './parsers';
@@ -243,7 +244,7 @@ app.get('/api/intercept/pending', (req, res) => {
 });
 
 // Forward request/response
-app.post('/api/intercept/:flowId/forward', (req, res) => {
+app.post('/api/intercept/:flowId/forward', async (req, res) => {
   const { flowId } = req.params;
   const pending = interceptManager.getPendingIntercept(flowId);
   if (!pending) {
@@ -254,12 +255,17 @@ app.post('/api/intercept/:flowId/forward', (req, res) => {
     interceptManager.forwardRequest(flowId);
   } else {
     interceptManager.forwardResponse(flowId);
+
+    // If this is a replay response, mark the variant as completed
+    if (pending.flow.replay_source) {
+      await replayManager.markCompleted(pending.flow.replay_source.variant_id, flowId);
+    }
   }
   res.json({ success: true });
 });
 
 // Forward with modifications
-app.post('/api/intercept/:flowId/forward-modified', (req, res) => {
+app.post('/api/intercept/:flowId/forward-modified', async (req, res) => {
   const { flowId } = req.params;
   const modifications: InterceptModifications = req.body;
   const pending = interceptManager.getPendingIntercept(flowId);
@@ -271,6 +277,11 @@ app.post('/api/intercept/:flowId/forward-modified', (req, res) => {
     interceptManager.forwardModifiedRequest(flowId, modifications);
   } else {
     interceptManager.forwardModifiedResponse(flowId, modifications);
+
+    // If this is a replay response, mark the variant as completed
+    if (pending.flow.replay_source) {
+      await replayManager.markCompleted(pending.flow.replay_source.variant_id, flowId);
+    }
   }
   res.json({ success: true });
 });
@@ -1576,15 +1587,43 @@ app.post('/api/replay/:id/send', async (req, res) => {
       });
       broadcastToFrontend({ type: 'traffic', data: replayFlow });
 
-      // Mark variant as completed
-      await replayManager.markCompleted(variant.variant_id, replayFlowId);
+      // Check if we should intercept the response
+      if (variant.intercept_on_replay) {
+        // Add to pending intercept queue
+        const pending: PendingIntercept = {
+          flow_id: replayFlowId,
+          timestamp: Date.now(),
+          flow: replayFlow,
+          type: 'response',
+        };
+        storage.addPendingIntercept(pending);
+        broadcastToFrontend({ type: 'intercept_response', data: pending });
 
-      res.json({
-        success: true,
-        message: 'Replay completed',
-        variant: replayManager.get(variant.variant_id),
-        result_flow_id: replayFlowId,
-      });
+        // Mark variant as intercepted (not completed yet)
+        await replayManager.updateResult(variant.variant_id, {
+          sent_at: variant.result?.sent_at || Date.now(),
+          result_flow_id: replayFlowId,
+          status: 'intercepted',
+        });
+
+        res.json({
+          success: true,
+          message: 'Replay sent - response intercepted',
+          variant: replayManager.get(variant.variant_id),
+          result_flow_id: replayFlowId,
+          intercepted: true,
+        });
+      } else {
+        // Mark variant as completed
+        await replayManager.markCompleted(variant.variant_id, replayFlowId);
+
+        res.json({
+          success: true,
+          message: 'Replay completed',
+          variant: replayManager.get(variant.variant_id),
+          result_flow_id: replayFlowId,
+        });
+      }
     } catch (fetchErr: any) {
       // Mark variant as failed
       await replayManager.markFailed(variant.variant_id, fetchErr.message || 'Request failed');

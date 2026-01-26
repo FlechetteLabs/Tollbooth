@@ -289,6 +289,8 @@ export const ReplayView: React.FC = () => {
                   ? 'bg-green-600/30 text-green-400'
                   : variant.result.status === 'failed'
                   ? 'bg-red-600/30 text-red-400'
+                  : variant.result.status === 'intercepted'
+                  ? 'bg-cyan-600/30 text-cyan-400'
                   : 'bg-yellow-600/30 text-yellow-400'
               }`}
             >
@@ -306,6 +308,7 @@ export const ReplayView: React.FC = () => {
       case 'completed': return 'text-green-400';
       case 'failed': return 'text-red-400';
       case 'sent': return 'text-yellow-400';
+      case 'intercepted': return 'text-cyan-400';
       default: return 'text-gray-400';
     }
   };
