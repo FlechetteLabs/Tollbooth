@@ -1386,6 +1386,30 @@ app.get('/api/replay/flow/:flowId/exists', (req, res) => {
   res.json({ has_variants: hasVariants, count });
 });
 
+// Get all replay names
+app.get('/api/replay/names', (req, res) => {
+  const names = replayManager.getAllReplayNames();
+  res.json({ names });
+});
+
+// Get replay name for a flow
+app.get('/api/replay/names/:flowId', (req, res) => {
+  const name = replayManager.getReplayName(req.params.flowId);
+  res.json({ flow_id: req.params.flowId, name });
+});
+
+// Set replay name for a flow
+app.put('/api/replay/names/:flowId', async (req, res) => {
+  try {
+    const { name } = req.body;
+    await replayManager.setReplayName(req.params.flowId, name || '');
+    res.json({ success: true, flow_id: req.params.flowId, name: replayManager.getReplayName(req.params.flowId) });
+  } catch (err: any) {
+    console.error('Failed to set replay name:', err);
+    res.status(500).json({ error: err.message || 'Failed to set replay name' });
+  }
+});
+
 // Get single variant
 app.get('/api/replay/:id', (req, res) => {
   const variant = replayManager.get(req.params.id);

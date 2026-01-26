@@ -18,6 +18,7 @@ type DetailMode = 'original' | 'variant';
 
 export const ReplayView: React.FC = () => {
   const [flowsWithVariants, setFlowsWithVariants] = useState<string[]>([]);
+  const [replayNames, setReplayNames] = useState<Record<string, string>>({});
   const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null);
   const [selectedFlow, setSelectedFlow] = useState<TrafficFlow | null>(null);
   const [variantTree, setVariantTree] = useState<VariantTreeData | null>(null);
@@ -27,21 +28,32 @@ export const ReplayView: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [parentVariantForCreate, setParentVariantForCreate] = useState<ReplayVariant | undefined>();
   const [isLoading, setIsLoading] = useState(true);
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [editNameValue, setEditNameValue] = useState('');
 
-  // Fetch all flows with variants
+  // Fetch all flows with variants and their names
   useEffect(() => {
     const fetchFlowsWithVariants = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/api/replay`);
-        if (res.ok) {
-          const data = await res.json();
+        const [variantsRes, namesRes] = await Promise.all([
+          fetch(`${API_BASE}/api/replay`),
+          fetch(`${API_BASE}/api/replay/names`),
+        ]);
+
+        if (variantsRes.ok) {
+          const data = await variantsRes.json();
           // Extract unique flow IDs
           const flowIds = new Set<string>();
           for (const v of data.variants || []) {
             flowIds.add(v.parent_flow_id);
           }
           setFlowsWithVariants(Array.from(flowIds));
+        }
+
+        if (namesRes.ok) {
+          const namesData = await namesRes.json();
+          setReplayNames(namesData.names || {});
         }
       } catch (err) {
         console.error('Failed to fetch variants:', err);
@@ -198,6 +210,54 @@ export const ReplayView: React.FC = () => {
       });
   };
 
+  const handleToggleIntercept = async (variant: ReplayVariant) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/replay/${variant.variant_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intercept_on_replay: !variant.intercept_on_replay }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedVariant(data.variant);
+        // Refresh tree to update cached data
+        if (selectedFlowId) {
+          const treeRes = await fetch(`${API_BASE}/api/replay/tree/${selectedFlowId}`);
+          if (treeRes.ok) {
+            setVariantTree(await treeRes.json());
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update intercept setting:', err);
+    }
+  };
+
+  const handleSaveReplayName = async (flowId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/replay/names/${flowId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editNameValue }),
+      });
+      if (res.ok) {
+        setReplayNames((prev) => ({
+          ...prev,
+          [flowId]: editNameValue,
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to save replay name:', err);
+    }
+    setEditingName(null);
+    setEditNameValue('');
+  };
+
+  const startEditingName = (flowId: string) => {
+    setEditingName(flowId);
+    setEditNameValue(replayNames[flowId] || '');
+  };
+
   const renderVariantTree = (variants: VariantWithChildren[], depth = 0) => {
     return variants.map((variant) => (
       <div key={variant.variant_id} style={{ marginLeft: depth * 16 }}>
@@ -278,17 +338,69 @@ export const ReplayView: React.FC = () => {
             </div>
           ) : (
             flowsWithVariants.map((flowId) => (
-              <button
+              <div
                 key={flowId}
                 onClick={() => setSelectedFlowId(flowId)}
-                className={`w-full text-left px-3 py-2 rounded text-sm mb-1 ${
+                className={`w-full text-left px-3 py-2 rounded text-sm mb-1 cursor-pointer ${
                   selectedFlowId === flowId
                     ? 'bg-blue-600 text-white'
                     : 'text-gray-300 hover:bg-gray-700'
                 }`}
               >
-                <div className="truncate font-mono text-xs">{flowId.substring(0, 20)}...</div>
-              </button>
+                {editingName === flowId ? (
+                  <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="text"
+                      value={editNameValue}
+                      onChange={(e) => setEditNameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveReplayName(flowId);
+                        if (e.key === 'Escape') setEditingName(null);
+                      }}
+                      className="flex-1 px-1 py-0.5 bg-gray-900 border border-gray-600 rounded text-xs text-white"
+                      placeholder="Enter name..."
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => handleSaveReplayName(flowId)}
+                      className="px-1.5 bg-green-600 text-white rounded text-xs hover:bg-green-500"
+                    >
+                      Save
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between group">
+                    <div className="flex-1 min-w-0">
+                      {replayNames[flowId] ? (
+                        <>
+                          <div className="truncate text-sm">{replayNames[flowId]}</div>
+                          <div className="truncate font-mono text-xs text-gray-400">
+                            {flowId.substring(0, 16)}...
+                          </div>
+                        </>
+                      ) : (
+                        <div className="truncate font-mono text-xs">{flowId.substring(0, 20)}...</div>
+                      )}
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEditingName(flowId);
+                      }}
+                      className={`p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${
+                        selectedFlowId === flowId
+                          ? 'hover:bg-blue-500 text-white'
+                          : 'hover:bg-gray-600 text-gray-400'
+                      }`}
+                      title="Edit name"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
             ))
           )}
         </div>
@@ -550,15 +662,15 @@ export const ReplayView: React.FC = () => {
               {/* Settings */}
               <div className="bg-gray-800 rounded p-3">
                 <h3 className="text-sm font-medium text-gray-300 mb-2">Settings</h3>
-                <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={selectedVariant.intercept_on_replay}
-                    readOnly
-                    className="rounded bg-gray-700 border-gray-600"
+                    onChange={() => handleToggleIntercept(selectedVariant)}
+                    className="rounded bg-gray-700 border-gray-600 cursor-pointer"
                   />
-                  <span className="text-sm text-gray-400">Intercept response when replayed</span>
-                </div>
+                  <span className="text-sm text-gray-300">Intercept response when replayed</span>
+                </label>
               </div>
 
               {/* Annotation */}

@@ -14,6 +14,7 @@ import { ReplayVariant, ReplayStatus, TrafficFlow } from './types';
 
 export class ReplayManager {
   private variants: Map<string, ReplayVariant> = new Map();
+  private replayNames: Map<string, string> = new Map(); // flowId -> name
   private basePath: string;
   private loaded = false;
 
@@ -27,6 +28,7 @@ export class ReplayManager {
   async initialize(): Promise<void> {
     await fs.mkdir(this.basePath, { recursive: true });
     await this.loadAll();
+    await this.loadNames();
   }
 
   /**
@@ -79,6 +81,58 @@ export class ReplayManager {
         throw err;
       }
     }
+  }
+
+  /**
+   * Load replay names from disk
+   */
+  private async loadNames(): Promise<void> {
+    const namesFile = path.join(this.basePath, '_names.json');
+    try {
+      const content = await fs.readFile(namesFile, 'utf-8');
+      const names = JSON.parse(content) as Record<string, string>;
+      this.replayNames = new Map(Object.entries(names));
+      console.log(`[ReplayManager] Loaded ${this.replayNames.size} replay names`);
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') {
+        console.error('[ReplayManager] Failed to load names:', err);
+      }
+    }
+  }
+
+  /**
+   * Save replay names to disk
+   */
+  private async saveNames(): Promise<void> {
+    const namesFile = path.join(this.basePath, '_names.json');
+    const names = Object.fromEntries(this.replayNames);
+    await fs.writeFile(namesFile, JSON.stringify(names, null, 2), 'utf-8');
+  }
+
+  /**
+   * Get the name for a replay (flow)
+   */
+  getReplayName(flowId: string): string | null {
+    return this.replayNames.get(flowId) || null;
+  }
+
+  /**
+   * Set the name for a replay (flow)
+   */
+  async setReplayName(flowId: string, name: string): Promise<void> {
+    if (name.trim()) {
+      this.replayNames.set(flowId, name.trim());
+    } else {
+      this.replayNames.delete(flowId);
+    }
+    await this.saveNames();
+  }
+
+  /**
+   * Get all replay names
+   */
+  getAllReplayNames(): Record<string, string> {
+    return Object.fromEntries(this.replayNames);
   }
 
   /**
