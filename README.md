@@ -58,8 +58,14 @@ A transparent proxy system for inspecting, debugging, and modifying traffic from
   - Create, edit, duplicate, and delete entries
   - Usage tracking shows which rules reference each entry
   - Transform entries with LLM for variations
-  - Persisted to disk in `./datastore/` directory
+  - Persisted to disk in `tollbooth-data/store/` directory
   - **Short IDs**: Responses get ds1, ds2...; Requests get rq1, rq2... for easy reference
+
+- **Data Persistence**: All data persists automatically across container restarts
+  - Single mount point (`tollbooth-data/`) for all persistent data
+  - Directory structure: `config/`, `traffic/`, `replay/`, `store/`
+  - Environment variables control which data categories persist
+  - One JSON file per traffic flow for easy inspection and backup
 
 - **Replay View**: Test API endpoints with request variants
   - Create variants from any captured traffic flow
@@ -324,7 +330,7 @@ File-based storage for mock requests and responses that can be served by rules.
 - Delete entries (with warning if used by rules)
 - View raw or pretty-printed JSON body
 - Import/export entries as JSON files
-- Entries are persisted to disk in `./datastore/` directory
+- Entries are persisted to disk in `tollbooth-data/store/` directory
 
 **Usage Tracking:**
 - Each entry shows a badge indicating how many rules reference it
@@ -553,7 +559,7 @@ Configure application settings.
 - **Temperature**: Control response randomness (0-1)
 - **Max Tokens**: Maximum tokens to generate
 
-> **Warning**: API keys entered here are stored in **plaintext** in `datastore/settings.json`. Do not use this tool on shared or production systems. Consider using environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) instead, which are passed through to the agent container without being persisted to disk.
+> **Warning**: API keys entered here are stored in **plaintext** in `tollbooth-data/config/settings.json`. Do not use this tool on shared or production systems. Consider using environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) instead, which are passed through to the agent container without being persisted to disk.
 
 **Data Store Path:**
 Shows the configured data store path (set via Docker volume mount).
@@ -1177,11 +1183,27 @@ mitmdump -s addon.py --listen-port 8080
 - `REST_PORT`: REST API port (default: 3000)
 - `PROXY_WS_PORT`: WebSocket port for proxy connection (default: 3001)
 - `FRONTEND_WS_PORT`: WebSocket port for frontend connection (default: 3002)
-- `DATASTORE_PATH`: Path to data store directory (default: ./datastore)
-- `RULES_FILE_PATH`: Path to rules.json file (default: ./datastore/rules.json)
-- `REFUSAL_RULES_PATH`: Path to refusal-rules.json file (default: ./datastore/refusal-rules.json)
 - `REFUSAL_MODEL_ID`: Zero-shot classification model (default: Xenova/nli-deberta-v3-small)
 - `MODEL_CACHE_DIR`: Directory for caching ML models (default: /app/models)
+
+**Persistence (Backend):**
+- `TOLLBOOTH_DATA_PATH`: Base path for persistent data (default: /data)
+- `TOLLBOOTH_PERSIST_TRAFFIC`: Enable traffic persistence (default: true)
+- `TOLLBOOTH_PERSIST_REPLAY`: Enable replay variant persistence (default: true)
+- `TOLLBOOTH_PERSIST_RULES`: Enable rules persistence (default: true)
+- `TOLLBOOTH_PERSIST_CONFIG`: Enable config file persistence (default: true)
+- `TOLLBOOTH_PERSIST_STORE`: Enable datastore persistence (default: true)
+
+Data is stored in the following structure under `TOLLBOOTH_DATA_PATH`:
+```
+/data/
+├── config/     # rules.json, settings.json, presets.json, refusal-rules.json
+├── traffic/    # One JSON file per traffic flow
+├── replay/     # Replay variants
+└── store/      # Stored responses and requests
+    ├── responses/
+    └── requests/
+```
 
 **Frontend:**
 - `VITE_BACKEND_URL`: Backend REST API URL (default: http://localhost:2000)
@@ -1198,7 +1220,7 @@ mitmdump -s addon.py --listen-port 8080
 - The CA certificate allows the proxy to decrypt HTTPS traffic. **Do not install it system-wide on production machines.**
 - API keys in intercepted traffic are visible in the UI. Use this tool only in development environments.
 - The proxy has full access to request/response bodies including sensitive data.
-- **LLM API keys configured via the Settings UI are stored in plaintext** in `datastore/settings.json`. This file is excluded from git by default, but exercise caution on shared systems. Prefer using environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) which are not persisted to disk.
+- **LLM API keys configured via the Settings UI are stored in plaintext** in `tollbooth-data/config/settings.json`. The `tollbooth-data/` directory is excluded from git by default, but exercise caution on shared systems. Prefer using environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) which are not persisted to disk.
 
 ---
 
