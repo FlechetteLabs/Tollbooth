@@ -1,20 +1,27 @@
 # Tollbooth
 
-A transparent proxy for inspecting, debugging, and modifying traffic from LLM-based coding agents.
+A transparent proxy for inspecting, debugging, and modifying network traffic—built for LLM agent research but applicable to any HTTP/HTTPS traffic.
 
-Works with **Claude Code**, **Codex CLI**, **Cursor**, **Aider**, and any tool that calls LLM APIs.
+Works with **Claude Code**, **Codex CLI**, **Cursor**, **Aider**, and any tool that makes network requests.
 
 ## What is Tollbooth?
 
-Tollbooth sits between your LLM agent and the API provider, giving you complete visibility and control over every request and response. Think of it as browser DevTools for AI agents.
+Tollbooth is a man-in-the-middle proxy that captures **all network traffic** from the agent container, giving you complete visibility and control over every request and response.
+
+While it was built for monitoring LLM agent communications (with automatic parsing of Anthropic, OpenAI, and Google API calls into readable conversations), Tollbooth intercepts **all HTTP/HTTPS traffic**—including requests made by tools that agents invoke, package managers, APIs, and any other network activity. This makes it useful for:
+
+- **Agent research** - Understand what your LLM agent is actually doing
+- **Security testing** - Inspect and modify traffic from any application in the container
+- **Network debugging** - See exactly what's going over the wire
+- **API development** - Mock responses, simulate errors, test edge cases
 
 ## Key Capabilities
 
-- **Inspect Traffic** - See every HTTP request your agent makes, with automatic parsing of LLM API calls into readable conversations.
+- **Inspect All Traffic** - See every HTTP request from the container. LLM API calls are automatically parsed into readable conversations; other traffic is shown in raw format.
 
-- **Modify Requests** - Intercept and edit requests before they reach the API. Change prompts, add headers, or drop requests entirely.
+- **Modify Requests** - Intercept and edit any request before it reaches its destination. Change headers, bodies, or drop requests entirely.
 
-- **Mock Responses** - Serve stored responses instead of calling the real API. Test edge cases, simulate errors, or cache expensive calls.
+- **Mock Responses** - Serve stored responses instead of forwarding requests. Test edge cases, simulate errors, or cache expensive calls.
 
 - **Detect Refusals** - ML-powered detection of LLM refusals with automatic handling options.
 

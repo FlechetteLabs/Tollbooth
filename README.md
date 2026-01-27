@@ -1,18 +1,18 @@
 # Tollbooth
 
-A transparent proxy for inspecting, debugging, and modifying traffic from LLM-based coding agents.
+A transparent proxy for inspecting, debugging, and modifying network traffic—built for LLM agent research but applicable to any HTTP/HTTPS traffic.
 
-Works with **Claude Code**, **Codex CLI**, **Cursor**, **Aider**, and any tool that calls LLM APIs.
+Works with **Claude Code**, **Codex CLI**, **Cursor**, **Aider**, and any tool that makes network requests.
 
 > **[Read the full documentation](https://flechettelabs.com/tollbooth)**
 
 ## What It Does
 
-Tollbooth sits between your LLM agent and the API provider, giving you complete visibility and control over every request and response. Think of it as browser DevTools for AI agents.
+Tollbooth is a man-in-the-middle proxy that captures **all network traffic** from the agent container. While built for monitoring LLM agent communications (with automatic parsing of API calls into conversations), it intercepts everything—including requests from tools that agents invoke, package managers, and any other network activity. Useful for agent research, security testing, and network debugging.
 
-- **Inspect Traffic** - See every HTTP request, with automatic parsing of LLM API calls into readable conversations
-- **Modify Requests** - Intercept and edit requests before they reach the API
-- **Mock Responses** - Serve stored responses instead of calling the real API
+- **Inspect All Traffic** - See every HTTP request. LLM API calls are parsed into readable conversations; other traffic shown raw.
+- **Modify Requests** - Intercept and edit any request before it reaches its destination
+- **Mock Responses** - Serve stored responses instead of forwarding requests
 - **Detect Refusals** - ML-powered detection of LLM refusals with automatic handling
 
 ## Quick Start
