@@ -62,6 +62,7 @@ nav:
     - Annotations: features/annotations.md
     - LLM Chat: features/llm-chat.md
     - Settings: features/settings.md
+  - Workflows: workflows.md
   - Configuration:
     - Agent Container: configuration/agent-container.md
     - Manual Agent Setup: configuration/manual-setup.md
@@ -69,4 +70,6 @@ nav:
     - Data Persistence: configuration/persistence.md
     - Upstream Proxy: configuration/upstream-proxy.md
   - API Reference: api-reference.md
+  - Development: development.md
+  - Security: security.md
   - Troubleshooting: troubleshooting.md
