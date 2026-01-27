@@ -1,6 +1,6 @@
 site_name: Tollbooth
 site_description: A transparent proxy for inspecting, debugging, and modifying LLM agent traffic
-site_url: https://flechettelabs.github.io/tollbooth
+site_url: https://flechettelabs.com/tollbooth
 repo_url: https://github.com/flechettelabs/tollbooth
 repo_name: flechettelabs/tollbooth
 
@@ -41,6 +41,9 @@ markdown_extensions:
   - pymdownx.snippets
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - tables
   - attr_list
   - md_in_html

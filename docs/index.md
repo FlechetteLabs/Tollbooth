@@ -10,21 +10,13 @@ Tollbooth sits between your LLM agent and the API provider, giving you complete 
 
 ## Key Capabilities
 
-<div class="grid cards" markdown>
+- **Inspect Traffic** - See every HTTP request your agent makes, with automatic parsing of LLM API calls into readable conversations.
 
-- :material-eye: **Inspect Traffic**
-  See every HTTP request your agent makes, with automatic parsing of LLM API calls into readable conversations.
+- **Modify Requests** - Intercept and edit requests before they reach the API. Change prompts, add headers, or drop requests entirely.
 
-- :material-pencil: **Modify Requests**
-  Intercept and edit requests before they reach the API. Change prompts, add headers, or drop requests entirely.
+- **Mock Responses** - Serve stored responses instead of calling the real API. Test edge cases, simulate errors, or cache expensive calls.
 
-- :material-swap-horizontal: **Mock Responses**
-  Serve stored responses instead of calling the real API. Test edge cases, simulate errors, or cache expensive calls.
-
-- :material-robot: **Detect Refusals**
-  ML-powered detection of LLM refusals with automatic handling options.
-
-</div>
+- **Detect Refusals** - ML-powered detection of LLM refusals with automatic handling options.
 
 ## Architecture
 
