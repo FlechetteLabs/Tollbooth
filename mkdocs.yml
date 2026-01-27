@@ -1,0 +1,69 @@
+site_name: Tollbooth
+site_description: A transparent proxy for inspecting, debugging, and modifying LLM agent traffic
+site_url: https://flechettelabs.github.io/tollbooth
+repo_url: https://github.com/flechettelabs/tollbooth
+repo_name: flechettelabs/tollbooth
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Features:
+    - Traffic View: features/traffic-view.md
+    - Conversations: features/conversations.md
+    - Intercept: features/intercept.md
+    - Rules Engine: features/rules.md
+    - Refusal Detection: features/refusal-detection.md
+    - Data Store: features/data-store.md
+    - Replay: features/replay.md
+    - Annotations: features/annotations.md
+    - LLM Chat: features/llm-chat.md
+    - Settings: features/settings.md
+  - Configuration:
+    - Agent Container: configuration/agent-container.md
+    - Manual Agent Setup: configuration/manual-setup.md
+    - Environment Variables: configuration/environment-variables.md
+    - Data Persistence: configuration/persistence.md
+    - Upstream Proxy: configuration/upstream-proxy.md
+  - API Reference: api-reference.md
+  - Troubleshooting: troubleshooting.md
