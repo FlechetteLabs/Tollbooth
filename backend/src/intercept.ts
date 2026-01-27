@@ -451,8 +451,19 @@ class InterceptManager extends EventEmitter {
           return;
 
         case 'intercept':
-          // Fall through to manual interception
-          break;
+          // Rule explicitly says intercept - add to queue regardless of global mode
+          {
+            console.log(`[InterceptManager] Rule action is 'intercept', adding request to queue`);
+            const pending: PendingIntercept = {
+              flow_id: flow.flow_id,
+              timestamp: Date.now(),
+              flow,
+              type: 'request',
+            };
+            storage.addPendingIntercept(pending);
+            this.emit('intercept_request', pending);
+          }
+          return;
 
         case 'modify_llm':
           // Apply LLM modification to request
@@ -472,7 +483,7 @@ class InterceptManager extends EventEmitter {
       }
     }
 
-    // No rule matched or rule action is 'intercept'
+    // No rule matched
     // If intercept mode is passthrough (traffic only came through because of rules mode),
     // just forward without adding to queue
     if (storage.getInterceptMode() === 'passthrough') {
@@ -579,8 +590,19 @@ class InterceptManager extends EventEmitter {
           return;
 
         case 'intercept':
-          // Fall through to manual interception
-          break;
+          // Rule explicitly says intercept - add to queue regardless of global mode
+          {
+            console.log(`[InterceptManager] Rule action is 'intercept', adding response to queue`);
+            const pending: PendingIntercept = {
+              flow_id: flow.flow_id,
+              timestamp: Date.now(),
+              flow,
+              type: 'response',
+            };
+            storage.addPendingIntercept(pending);
+            this.emit('intercept_response', pending);
+          }
+          return;
 
         case 'modify_llm':
           // Apply LLM modification to response
@@ -653,7 +675,7 @@ class InterceptManager extends EventEmitter {
       }
     }
 
-    // No rule matched or rule action is 'intercept'
+    // No rule matched
     // If intercept mode is passthrough (traffic only came through because of rules mode),
     // just forward without adding to queue
     if (storage.getInterceptMode() === 'passthrough') {
