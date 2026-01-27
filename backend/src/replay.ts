@@ -11,6 +11,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { ReplayVariant, ReplayStatus, TrafficFlow } from './types';
+import { persistence } from './persistence';
 
 export class ReplayManager {
   private variants: Map<string, ReplayVariant> = new Map();
@@ -18,8 +19,9 @@ export class ReplayManager {
   private basePath: string;
   private loaded = false;
 
-  constructor(basePath: string = './datastore/replay') {
-    this.basePath = basePath;
+  constructor() {
+    // Get path from persistence layer (handles /data vs legacy paths)
+    this.basePath = persistence.getReplayBasePath();
   }
 
   /**
@@ -444,8 +446,7 @@ export class ReplayManager {
 }
 
 // Singleton instance
-const replayPath = process.env.REPLAY_PATH || './datastore/replay';
-export const replayManager = new ReplayManager(replayPath);
+export const replayManager = new ReplayManager();
 
 // Initialize on module load
 replayManager.initialize().catch(err => {

@@ -8,16 +8,18 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { StoredResponse, StoredRequest } from './types';
 import { shortIdRegistry } from './short-id-registry';
+import { persistence } from './persistence';
 
 export class DataStore {
   private basePath: string;
   private responsesPath: string;
   private requestsPath: string;
 
-  constructor(basePath: string = './datastore') {
-    this.basePath = basePath;
-    this.responsesPath = path.join(basePath, 'responses');
-    this.requestsPath = path.join(basePath, 'requests');
+  constructor() {
+    // Get path from persistence layer (handles /data vs legacy paths)
+    this.basePath = persistence.getDatastoreBasePath();
+    this.responsesPath = path.join(this.basePath, 'responses');
+    this.requestsPath = path.join(this.basePath, 'requests');
   }
 
   /**
@@ -285,8 +287,7 @@ export class DataStore {
 }
 
 // Singleton instance
-const datastorePath = process.env.DATASTORE_PATH || './datastore';
-export const dataStore = new DataStore(datastorePath);
+export const dataStore = new DataStore();
 
 // Initialize on module load
 dataStore.initialize().catch(err => {

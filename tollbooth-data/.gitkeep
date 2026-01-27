@@ -1,0 +1,8 @@
+# This directory stores persistent data when tollbooth runs with Docker.
+# All subdirectories and files (except this .gitkeep) are gitignored.
+#
+# Directory structure (created automatically):
+#   config/   - rules, settings, presets, templates, refusal-rules
+#   traffic/  - traffic flows (one JSON file per flow)
+#   replay/   - replay variants
+#   store/    - stored responses/requests for mock rules

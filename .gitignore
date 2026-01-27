@@ -16,11 +16,10 @@ backend/models/
 .env.local
 .env.*.local
 
-# Settings (contains API keys)
-datastore/settings.json
-
-# Runtime replay data
-datastore/replay/
+# Persisted data (tollbooth-data)
+# Keep the folder with .gitkeep but ignore all contents
+tollbooth-data/*
+!tollbooth-data/.gitkeep
 
 # Certificates (sensitive)
 certs/

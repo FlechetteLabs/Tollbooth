@@ -21,9 +21,6 @@ import {
 } from './types';
 import { persistence } from './persistence';
 
-// Legacy paths for backwards compatibility
-const REFUSAL_RULES_FILE = process.env.REFUSAL_RULES_PATH || './datastore/refusal-rules.json';
-
 class Storage {
   private traffic: Map<string, TrafficFlow> = new Map();
   private conversations: Map<string, Conversation> = new Map();
@@ -443,16 +440,17 @@ class Storage {
   // Load refusal rules from disk
   loadRefusalRules(): void {
     try {
-      if (fs.existsSync(REFUSAL_RULES_FILE)) {
-        const data = fs.readFileSync(REFUSAL_RULES_FILE, 'utf-8');
+      const refusalRulesFile = persistence.getRefusalRulesFilePath();
+      if (fs.existsSync(refusalRulesFile)) {
+        const data = fs.readFileSync(refusalRulesFile, 'utf-8');
         const rules: RefusalRule[] = JSON.parse(data);
         this.refusalRules.clear();
         for (const rule of rules) {
           this.refusalRules.set(rule.id, rule);
         }
-        console.log(`[Storage] Loaded ${rules.length} refusal rules from ${REFUSAL_RULES_FILE}`);
+        console.log(`[Storage] Loaded ${rules.length} refusal rules from ${refusalRulesFile}`);
       } else {
-        console.log(`[Storage] No refusal rules file found at ${REFUSAL_RULES_FILE}, starting with empty rules`);
+        console.log(`[Storage] No refusal rules file found at ${refusalRulesFile}, starting with empty rules`);
       }
     } catch (error) {
       console.error(`[Storage] Failed to load refusal rules:`, error);
@@ -462,13 +460,14 @@ class Storage {
   // Save refusal rules to disk
   private saveRefusalRules(): void {
     try {
+      const refusalRulesFile = persistence.getRefusalRulesFilePath();
       const rules = Array.from(this.refusalRules.values());
-      const dir = path.dirname(REFUSAL_RULES_FILE);
+      const dir = path.dirname(refusalRulesFile);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(REFUSAL_RULES_FILE, JSON.stringify(rules, null, 2));
-      console.log(`[Storage] Saved ${rules.length} refusal rules to ${REFUSAL_RULES_FILE}`);
+      fs.writeFileSync(refusalRulesFile, JSON.stringify(rules, null, 2));
+      console.log(`[Storage] Saved ${rules.length} refusal rules to ${refusalRulesFile}`);
     } catch (error) {
       console.error(`[Storage] Failed to save refusal rules:`, error);
     }

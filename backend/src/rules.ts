@@ -20,15 +20,17 @@ import {
   HeaderModification,
 } from './types';
 import { shortIdRegistry } from './short-id-registry';
+import { persistence } from './persistence';
 
 export class RulesEngine extends EventEmitter {
   private rules: Rule[] = [];
   private rulesFilePath: string;
   private loaded = false;
 
-  constructor(filePath: string = './datastore/rules.json') {
+  constructor() {
     super();
-    this.rulesFilePath = filePath;
+    // Get path from persistence layer (handles /data vs legacy paths)
+    this.rulesFilePath = persistence.getRulesFilePath();
   }
 
   /**
@@ -758,8 +760,7 @@ export class RulesEngine extends EventEmitter {
 }
 
 // Singleton instance
-const rulesFilePath = process.env.RULES_FILE_PATH || './datastore/rules.json';
-export const rulesEngine = new RulesEngine(rulesFilePath);
+export const rulesEngine = new RulesEngine();
 
 // Load rules on module initialization
 rulesEngine.loadRules().catch(err => {

@@ -38,25 +38,34 @@ const CONFIG_FILES = {
   refusalRules: path.join(DIRS.config, 'refusal-rules.json'),
 };
 
+// Synchronously check if /data is available at module load time
+// This allows other modules to get the correct paths immediately
+function checkDataPathSync(): boolean {
+  try {
+    fsSync.accessSync(DATA_PATH, fsSync.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const DATA_PATH_AVAILABLE = checkDataPathSync();
+
 class PersistenceManager {
-  private enabled = false;
+  private enabled = DATA_PATH_AVAILABLE;
   private initialized = false;
 
   /**
-   * Check if persistence is available and initialize directories
+   * Initialize directories (called at startup)
    */
   async initialize(): Promise<void> {
-    // Check if /data exists and is writable
-    try {
-      await fs.access(DATA_PATH, fsSync.constants.W_OK);
-      this.enabled = true;
-      console.log(`[Persistence] Data directory found at ${DATA_PATH}`);
-    } catch {
-      this.enabled = false;
+    if (!this.enabled) {
       console.log(`[Persistence] No data directory at ${DATA_PATH} - running in memory-only mode`);
       this.initialized = true;
       return;
     }
+
+    console.log(`[Persistence] Data directory found at ${DATA_PATH}`);
 
     // Create directory structure
     try {
@@ -359,18 +368,66 @@ class PersistenceManager {
     };
   }
 
-  // ============ Migration Support ============
+  // ============ Path Helpers ============
 
   /**
-   * Check if old datastore directory exists (for migration)
+   * Get the path for rules.json
    */
-  async hasLegacyDatastore(legacyPath: string): Promise<boolean> {
-    try {
-      await fs.access(legacyPath);
-      return true;
-    } catch {
-      return false;
+  getRulesFilePath(): string {
+    if (this.isPersisted('rules')) {
+      return CONFIG_FILES.rules;
     }
+    return process.env.RULES_FILE_PATH || './datastore/rules.json';
+  }
+
+  /**
+   * Get the path for settings.json
+   */
+  getSettingsFilePath(): string {
+    if (this.isPersisted('config')) {
+      return CONFIG_FILES.settings;
+    }
+    return process.env.SETTINGS_FILE_PATH || './datastore/settings.json';
+  }
+
+  /**
+   * Get the path for refusal-rules.json
+   */
+  getRefusalRulesFilePath(): string {
+    if (this.isPersisted('config')) {
+      return CONFIG_FILES.refusalRules;
+    }
+    return process.env.REFUSAL_RULES_PATH || './datastore/refusal-rules.json';
+  }
+
+  /**
+   * Get the path for templates.json
+   */
+  getTemplatesFilePath(): string {
+    if (this.isPersisted('config')) {
+      return CONFIG_FILES.templates;
+    }
+    return process.env.TEMPLATES_FILE_PATH || './datastore/templates.json';
+  }
+
+  /**
+   * Get the base path for datastore (responses/requests)
+   */
+  getDatastoreBasePath(): string {
+    if (this.isPersisted('store')) {
+      return DIRS.store;
+    }
+    return process.env.DATASTORE_PATH || './datastore';
+  }
+
+  /**
+   * Get the base path for replay variants
+   */
+  getReplayBasePath(): string {
+    if (this.isPersisted('replay')) {
+      return DIRS.replay;
+    }
+    return process.env.REPLAY_PATH || './datastore/replay';
   }
 }
 

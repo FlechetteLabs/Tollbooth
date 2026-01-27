@@ -7,6 +7,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { EventEmitter } from 'events';
 import { PromptTemplate, PromptTemplateVariable, LLMProvider, ConfigurableLLMProvider } from './types';
+import { persistence } from './persistence';
 
 // Re-export for backwards compatibility
 export type { LLMProvider, ConfigurableLLMProvider };
@@ -164,9 +165,10 @@ export class SettingsManager extends EventEmitter {
   private settingsFilePath: string;
   private loaded = false;
 
-  constructor(filePath: string = './datastore/settings.json') {
+  constructor() {
     super();
-    this.settingsFilePath = filePath;
+    // Get path from persistence layer (handles /data vs legacy paths)
+    this.settingsFilePath = persistence.getSettingsFilePath();
     this.settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   }
 
@@ -549,8 +551,7 @@ export class SettingsManager extends EventEmitter {
 }
 
 // Singleton instance
-const settingsFilePath = process.env.SETTINGS_FILE_PATH || './datastore/settings.json';
-export const settingsManager = new SettingsManager(settingsFilePath);
+export const settingsManager = new SettingsManager();
 
 // Load settings on module initialization
 settingsManager.load().catch(err => {
