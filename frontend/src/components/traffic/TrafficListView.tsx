@@ -558,13 +558,14 @@ function FilterBar({
 
 interface TrafficRowProps {
   flow: TrafficFlow;
+  index: number;
   isSelected: boolean;
   isChecked: boolean;
-  onToggleCheck: (e: React.MouseEvent) => void;
+  onToggleCheck: (index: number, e: React.MouseEvent) => void;
   onClick: () => void;
 }
 
-function TrafficRow({ flow, isSelected, isChecked, onToggleCheck, onClick }: TrafficRowProps) {
+function TrafficRow({ flow, index, isSelected, isChecked, onToggleCheck, onClick }: TrafficRowProps) {
   // Build tooltip for modified indicator
   const getModifiedTooltip = (): string | null => {
     const parts: string[] = [];
@@ -599,7 +600,7 @@ function TrafficRow({ flow, isSelected, isChecked, onToggleCheck, onClick }: Tra
       <input
         type="checkbox"
         checked={isChecked}
-        onClick={onToggleCheck}
+        onClick={(e) => onToggleCheck(index, e)}
         onChange={() => {}}
         className="w-4 h-4 rounded border-inspector-border shrink-0"
       />
@@ -748,6 +749,8 @@ export function TrafficListView() {
 
   // Selection state for bulk operations
   const [selectedFlowIds, setSelectedFlowIds] = useState<Set<string>>(new Set());
+  // Track last selected index for shift-select range
+  const lastSelectedIndexRef = useRef<number | null>(null);
 
   // Advanced panel visibility
   const [showAdvancedPanel, setShowAdvancedPanel] = useState(false);
@@ -927,9 +930,30 @@ export function TrafficListView() {
     });
   }, [allTraffic, activeFilters, advancedFilter, advancedMode, matchesSearch]);
 
-  // Toggle selection for a flow
-  const toggleSelection = useCallback((flowId: string, e: React.MouseEvent) => {
+  // Toggle selection for a flow (with shift-select support)
+  const toggleSelection = useCallback((flowId: string, index: number, e: React.MouseEvent) => {
     e.stopPropagation();
+
+    // Shift-click for range selection
+    if (e.shiftKey && lastSelectedIndexRef.current !== null) {
+      const start = Math.min(lastSelectedIndexRef.current, index);
+      const end = Math.max(lastSelectedIndexRef.current, index);
+
+      setSelectedFlowIds(prev => {
+        const next = new Set(prev);
+        // Add all flows in the range
+        for (let i = start; i <= end; i++) {
+          if (filteredTraffic[i]) {
+            next.add(filteredTraffic[i].flow_id);
+          }
+        }
+        return next;
+      });
+      // Don't update lastSelectedIndex on shift-click to allow extending selection
+      return;
+    }
+
+    // Ctrl/Cmd-click or regular click: toggle single item
     setSelectedFlowIds(prev => {
       const next = new Set(prev);
       if (next.has(flowId)) {
@@ -939,7 +963,10 @@ export function TrafficListView() {
       }
       return next;
     });
-  }, []);
+
+    // Update last selected index
+    lastSelectedIndexRef.current = index;
+  }, [filteredTraffic]);
 
   // Select all visible flows
   const selectAll = useCallback(() => {
@@ -1114,13 +1141,14 @@ export function TrafficListView() {
             No traffic matches the current filters
           </div>
         ) : (
-          filteredTraffic.map((flow) => (
+          filteredTraffic.map((flow, index) => (
             <TrafficRow
               key={flow.flow_id}
               flow={flow}
+              index={index}
               isSelected={selectedTrafficId === flow.flow_id}
               isChecked={selectedFlowIds.has(flow.flow_id)}
-              onToggleCheck={(e) => toggleSelection(flow.flow_id, e)}
+              onToggleCheck={(idx, e) => toggleSelection(flow.flow_id, idx, e)}
               onClick={() => setSelectedTrafficId(flow.flow_id)}
             />
           ))
