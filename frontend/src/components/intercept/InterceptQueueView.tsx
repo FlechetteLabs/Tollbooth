@@ -30,11 +30,13 @@ interface InterceptCardProps {
   isChecked: boolean;
   onSelect: () => void;
   onCheckChange: (checked: boolean) => void;
+  onToggleImmunity: (immune: boolean) => void;
 }
 
-function InterceptCard({ intercept, isActive, isChecked, onSelect, onCheckChange }: InterceptCardProps) {
+function InterceptCard({ intercept, isActive, isChecked, onSelect, onCheckChange, onToggleImmunity }: InterceptCardProps) {
   const timeAgo = getTimeAgo(intercept.timestamp);
   const isOld = Date.now() - intercept.timestamp > 4 * 60 * 1000; // 4 minutes
+  const isImmune = intercept.timeout_immune ?? false;
 
   return (
     <div
@@ -43,7 +45,8 @@ function InterceptCard({ intercept, isActive, isChecked, onSelect, onCheckChange
         isActive
           ? 'bg-inspector-accent/20'
           : 'hover:bg-inspector-surface',
-        isOld && 'border-l-4 border-l-inspector-warning'
+        isOld && !isImmune && 'border-l-4 border-l-inspector-warning',
+        isImmune && 'border-l-4 border-l-inspector-accent'
       )}
     >
       <input
@@ -69,11 +72,38 @@ function InterceptCard({ intercept, isActive, isChecked, onSelect, onCheckChange
           <span className="font-mono text-sm truncate flex-1">
             {intercept.flow.request.method} {intercept.flow.request.host}
           </span>
+          {/* Timeout immunity toggle */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleImmunity(!isImmune);
+            }}
+            title={isImmune ? 'Click to allow timeout' : 'Click to prevent timeout'}
+            className={clsx(
+              'p-1 rounded transition-colors',
+              isImmune
+                ? 'text-inspector-accent hover:text-blue-400'
+                : 'text-inspector-muted hover:text-inspector-text'
+            )}
+          >
+            {isImmune ? (
+              // Shield icon (filled) - immune to timeout
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 1a1 1 0 011 1v1a1 1 0 11-2 0V2a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
+              </svg>
+            ) : (
+              // Clock icon - subject to timeout
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+          </button>
         </div>
         <div className="flex items-center gap-4 text-xs text-inspector-muted">
           <span className="truncate">{intercept.flow.request.path}</span>
-          <span className={clsx(isOld && 'text-inspector-warning')}>{timeAgo}</span>
-          {isOld && <span className="text-inspector-warning">Timeout soon</span>}
+          <span className={clsx(isOld && !isImmune && 'text-inspector-warning')}>{timeAgo}</span>
+          {isOld && !isImmune && <span className="text-inspector-warning">Timeout soon</span>}
+          {isImmune && <span className="text-inspector-accent">No timeout</span>}
         </div>
       </div>
     </div>
@@ -913,6 +943,23 @@ export function InterceptQueueView() {
     });
   };
 
+  // Toggle timeout immunity for a single intercept
+  const toggleTimeoutImmunity = async (flowId: string, immune: boolean) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/intercept/${flowId}/timeout-immune`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ immune }),
+      });
+      if (!res.ok) {
+        console.error('Failed to toggle timeout immunity');
+      }
+      // The backend will broadcast the updated pending list via WebSocket
+    } catch (err) {
+      console.error('Error toggling timeout immunity:', err);
+    }
+  };
+
   // Bulk actions
   const forwardSelected = () => {
     selectedFlowIds.forEach(flowId => {
@@ -1093,6 +1140,7 @@ export function InterceptQueueView() {
                 isChecked={selectedFlowIds.has(intercept.flow_id)}
                 onSelect={() => setSelectedInterceptId(intercept.flow_id)}
                 onCheckChange={(checked) => toggleSelection(intercept.flow_id, checked)}
+                onToggleImmunity={(immune) => toggleTimeoutImmunity(intercept.flow_id, immune)}
               />
             ))
           )}

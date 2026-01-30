@@ -1005,6 +1005,7 @@ class InterceptManager extends EventEmitter {
 
   /**
    * Check for timed out intercepts (5 minute timeout)
+   * Skips intercepts that are marked as timeout_immune
    */
   checkTimeouts(): string[] {
     const timedOut: string[] = [];
@@ -1012,6 +1013,10 @@ class InterceptManager extends EventEmitter {
     const timeout = 5 * 60 * 1000; // 5 minutes
 
     for (const pending of storage.getPendingIntercepts()) {
+      // Skip immune intercepts
+      if (pending.timeout_immune) {
+        continue;
+      }
       if (now - pending.timestamp > timeout) {
         timedOut.push(pending.flow_id);
         // Auto-forward on timeout
@@ -1024,6 +1029,13 @@ class InterceptManager extends EventEmitter {
     }
 
     return timedOut;
+  }
+
+  /**
+   * Set timeout immunity for a pending intercept
+   */
+  setTimeoutImmunity(flowId: string, immune: boolean): boolean {
+    return storage.updatePendingIntercept(flowId, { timeout_immune: immune });
   }
 }
 

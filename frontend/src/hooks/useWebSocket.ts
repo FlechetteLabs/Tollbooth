@@ -37,6 +37,7 @@ function handleMessage(message: WSMessage) {
     addOrUpdateConversation,
     addPendingIntercept,
     removePendingIntercept,
+    setPendingIntercepts,
     addPendingRefusal,
     removePendingRefusal,
     setInterceptMode,
@@ -88,6 +89,11 @@ function handleMessage(message: WSMessage) {
     case 'rules_enabled_changed':
       const rulesData = message.data as { enabled: boolean };
       setRulesEnabled(rulesData.enabled);
+      break;
+
+    case 'pending_intercepts_updated':
+      const pendingData = message.data as { pending: PendingIntercept[] };
+      setPendingIntercepts(pendingData.pending);
       break;
 
     // Refusal detection messages

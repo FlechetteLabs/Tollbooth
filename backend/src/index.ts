@@ -297,6 +297,29 @@ app.post('/api/intercept/:flowId/drop', (req, res) => {
   res.json({ success: true });
 });
 
+// Set timeout immunity for a pending intercept
+app.post('/api/intercept/:flowId/timeout-immune', (req, res) => {
+  const { flowId } = req.params;
+  const { immune } = req.body;
+
+  if (typeof immune !== 'boolean') {
+    return res.status(400).json({ error: 'immune must be a boolean' });
+  }
+
+  const success = interceptManager.setTimeoutImmunity(flowId, immune);
+  if (!success) {
+    return res.status(404).json({ error: 'Pending intercept not found' });
+  }
+
+  // Broadcast updated pending list
+  broadcastToFrontend({
+    type: 'pending_intercepts_updated',
+    data: { pending: interceptManager.getPendingIntercepts() },
+  });
+
+  res.json({ success: true, flow_id: flowId, timeout_immune: immune });
+});
+
 // Clear all data
 app.post('/api/clear', (req, res) => {
   storage.clear();

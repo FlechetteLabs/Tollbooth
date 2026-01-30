@@ -65,6 +65,7 @@ export interface PendingIntercept {
   timestamp: number;
   flow: TrafficFlow;
   type: 'request' | 'response';
+  timeout_immune?: boolean;  // If true, will not auto-forward on timeout
 }
 
 export interface InterceptModifications {

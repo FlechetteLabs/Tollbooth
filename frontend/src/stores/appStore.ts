@@ -46,6 +46,7 @@ interface AppState {
   pendingIntercepts: Map<string, PendingIntercept>;
   addPendingIntercept: (intercept: PendingIntercept) => void;
   removePendingIntercept: (flowId: string) => void;
+  setPendingIntercepts: (intercepts: PendingIntercept[]) => void;
   selectedInterceptId: string | null;
   setSelectedInterceptId: (id: string | null) => void;
 
@@ -139,6 +140,14 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const newPending = new Map(state.pendingIntercepts);
       newPending.delete(flowId);
+      return { pendingIntercepts: newPending };
+    }),
+  setPendingIntercepts: (intercepts) =>
+    set(() => {
+      const newPending = new Map<string, PendingIntercept>();
+      for (const intercept of intercepts) {
+        newPending.set(intercept.flow_id, intercept);
+      }
       return { pendingIntercepts: newPending };
     }),
   selectedInterceptId: null,

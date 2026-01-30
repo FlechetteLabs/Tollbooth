@@ -390,6 +390,17 @@ class Storage {
     );
   }
 
+  updatePendingIntercept(flowId: string, updates: Partial<PendingIntercept>): boolean {
+    const existing = this.pendingIntercepts.get(flowId);
+    if (!existing) return false;
+    this.pendingIntercepts.set(flowId, { ...existing, ...updates });
+    return true;
+  }
+
+  getPendingIntercept(flowId: string): PendingIntercept | undefined {
+    return this.pendingIntercepts.get(flowId);
+  }
+
   // ============ Stream chunk methods ============
 
   addStreamChunk(flowId: string, chunk: StreamChunk): void {
