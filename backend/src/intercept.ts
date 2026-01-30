@@ -357,10 +357,11 @@ class InterceptManager extends EventEmitter {
    * Handle incoming intercept request from proxy
    */
   async handleInterceptRequest(flow: TrafficFlow): Promise<void> {
-    // Evaluate rules first
-    const ruleMatch = rulesEngine.evaluateRequest(flow);
+    // Evaluate rules first, with support for fall-through
+    const excludedRules = new Set<string>();
+    let ruleMatch = rulesEngine.evaluateRequest(flow, excludedRules);
 
-    if (ruleMatch) {
+    while (ruleMatch) {
       console.log(`[InterceptManager] Rule matched for request: ${ruleMatch.rule.name} (${ruleMatch.action})`);
 
       // Apply tags from rule (if any) - this happens regardless of action type
@@ -373,31 +374,72 @@ class InterceptManager extends EventEmitter {
           return;
 
         case 'modify_static':
-          // Apply static modification and forward
+          // Apply static modification and forward (or intercept if allow_intercept is set)
           if (ruleMatch.rule.action.static_modification) {
             const mod = ruleMatch.rule.action.static_modification;
             const modifications: InterceptModifications = {};
+            let anyModified = false;
 
             // Apply body modifications (with variable interpolation)
             if (mod.replace_body !== undefined || mod.find_replace) {
               const originalBody = flow.request.content || '';
-              modifications.body = rulesEngine.applyStaticModification(originalBody, mod, flow);
-              console.log(`[InterceptManager] Applying static modification to request body`);
+              const bodyResult = rulesEngine.applyStaticModification(originalBody, mod, flow);
+              if (bodyResult.modified) {
+                modifications.body = bodyResult.result;
+                anyModified = true;
+                console.log(`[InterceptManager] Applying static modification to request body`);
+              }
             }
 
             // Apply header modifications (with variable interpolation)
             if (mod.header_modifications && mod.header_modifications.length > 0) {
               const originalHeaders = flow.request.headers || {};
-              modifications.headers = rulesEngine.applyHeaderModifications(originalHeaders, mod.header_modifications, flow);
-              console.log(`[InterceptManager] Applying header modifications to request`);
+              const headerResult = rulesEngine.applyHeaderModifications(originalHeaders, mod.header_modifications, flow);
+              if (headerResult.modified) {
+                modifications.headers = headerResult.result;
+                anyModified = true;
+                console.log(`[InterceptManager] Applying header modifications to request`);
+              }
             }
 
-            if (Object.keys(modifications).length > 0) {
-              const ruleRef = { id: ruleMatch.rule.id, name: ruleMatch.rule.name };
-              this.forwardModifiedRequest(flow.flow_id, modifications, ruleRef);
-            } else {
-              this.forwardRequest(flow.flow_id);
+            // If nothing was modified, fall through to next matching rule
+            if (!anyModified) {
+              console.log(`[InterceptManager] Rule ${ruleMatch.rule.name} matched but no modifications applied, trying next rule`);
+              excludedRules.add(ruleMatch.rule.id);
+              ruleMatch = rulesEngine.evaluateRequest(flow, excludedRules);
+              continue;
             }
+
+            const ruleRef = { id: ruleMatch.rule.id, name: ruleMatch.rule.name };
+
+            // Check if allow_intercept is set - apply modifications then add to intercept queue
+            if (mod.allow_intercept) {
+              console.log(`[InterceptManager] Rule has allow_intercept, adding to queue after modifications`);
+              // Store the modifications in the flow for later use
+              const pending: PendingIntercept = {
+                flow_id: flow.flow_id,
+                timestamp: Date.now(),
+                flow,
+                type: 'request',
+              };
+              // Forward with modifications but also add to queue
+              // The pending intercept will show the pre-modified state
+              storage.addPendingIntercept(pending);
+              storage.updateTraffic(flow.flow_id, { request_modified_by_rule: ruleRef });
+              this.emit('intercept_request', pending);
+              // Send modifications to proxy so user sees modified version in intercept
+              if (this.proxyWs) {
+                const message = JSON.stringify({
+                  cmd: 'apply_modifications',
+                  flow_id: flow.flow_id,
+                  modifications,
+                });
+                this.proxyWs.send(message);
+              }
+              return;
+            }
+
+            this.forwardModifiedRequest(flow.flow_id, modifications, ruleRef);
           } else {
             this.forwardRequest(flow.flow_id);
           }
@@ -508,10 +550,11 @@ class InterceptManager extends EventEmitter {
    * Handle incoming intercept response from proxy
    */
   async handleInterceptResponse(flow: TrafficFlow): Promise<void> {
-    // Evaluate rules first
-    const ruleMatch = rulesEngine.evaluateResponse(flow);
+    // Evaluate rules first, with support for fall-through
+    const excludedRules = new Set<string>();
+    let ruleMatch = rulesEngine.evaluateResponse(flow, excludedRules);
 
-    if (ruleMatch) {
+    while (ruleMatch) {
       console.log(`[InterceptManager] Rule matched for response: ${ruleMatch.rule.name} (${ruleMatch.action})`);
 
       // Apply tags from rule (if any) - this happens regardless of action type
@@ -524,31 +567,69 @@ class InterceptManager extends EventEmitter {
           return;
 
         case 'modify_static':
-          // Apply static modification and forward
+          // Apply static modification and forward (or intercept if allow_intercept is set)
           if (ruleMatch.rule.action.static_modification && flow.response) {
             const mod = ruleMatch.rule.action.static_modification;
             const modifications: InterceptModifications = {};
+            let anyModified = false;
 
             // Apply body modifications (with variable interpolation)
             if (mod.replace_body !== undefined || mod.find_replace) {
               const originalBody = flow.response.content || '';
-              modifications.body = rulesEngine.applyStaticModification(originalBody, mod, flow);
-              console.log(`[InterceptManager] Applying static modification to response body`);
+              const bodyResult = rulesEngine.applyStaticModification(originalBody, mod, flow);
+              if (bodyResult.modified) {
+                modifications.body = bodyResult.result;
+                anyModified = true;
+                console.log(`[InterceptManager] Applying static modification to response body`);
+              }
             }
 
             // Apply header modifications (with variable interpolation)
             if (mod.header_modifications && mod.header_modifications.length > 0) {
               const originalHeaders = flow.response.headers || {};
-              modifications.headers = rulesEngine.applyHeaderModifications(originalHeaders, mod.header_modifications, flow);
-              console.log(`[InterceptManager] Applying header modifications to response`);
+              const headerResult = rulesEngine.applyHeaderModifications(originalHeaders, mod.header_modifications, flow);
+              if (headerResult.modified) {
+                modifications.headers = headerResult.result;
+                anyModified = true;
+                console.log(`[InterceptManager] Applying header modifications to response`);
+              }
             }
 
-            if (Object.keys(modifications).length > 0) {
-              const ruleRef = { id: ruleMatch.rule.id, name: ruleMatch.rule.name };
-              this.forwardModifiedResponse(flow.flow_id, modifications, ruleRef);
-            } else {
-              this.forwardResponse(flow.flow_id);
+            // If nothing was modified, fall through to next matching rule
+            if (!anyModified) {
+              console.log(`[InterceptManager] Rule ${ruleMatch.rule.name} matched but no modifications applied, trying next rule`);
+              excludedRules.add(ruleMatch.rule.id);
+              ruleMatch = rulesEngine.evaluateResponse(flow, excludedRules);
+              continue;
             }
+
+            const ruleRef = { id: ruleMatch.rule.id, name: ruleMatch.rule.name };
+
+            // Check if allow_intercept is set - apply modifications then add to intercept queue
+            if (mod.allow_intercept) {
+              console.log(`[InterceptManager] Rule has allow_intercept, adding to queue after modifications`);
+              const pending: PendingIntercept = {
+                flow_id: flow.flow_id,
+                timestamp: Date.now(),
+                flow,
+                type: 'response',
+              };
+              storage.addPendingIntercept(pending);
+              storage.updateTraffic(flow.flow_id, { response_modified_by_rule: ruleRef });
+              this.emit('intercept_response', pending);
+              // Send modifications to proxy so user sees modified version in intercept
+              if (this.proxyWs) {
+                const message = JSON.stringify({
+                  cmd: 'apply_modifications',
+                  flow_id: flow.flow_id,
+                  modifications,
+                });
+                this.proxyWs.send(message);
+              }
+              return;
+            }
+
+            this.forwardModifiedResponse(flow.flow_id, modifications, ruleRef);
           } else {
             this.forwardResponse(flow.flow_id);
           }

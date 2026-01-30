@@ -13,6 +13,7 @@ Tollbooth is a man-in-the-middle proxy that captures **all network traffic** fro
 - **Inspect All Traffic** - See every HTTP request. LLM API calls are parsed into readable conversations; other traffic shown raw.
 - **Modify Requests** - Intercept and edit any request before it reaches its destination
 - **Mock Responses** - Serve stored responses instead of forwarding requests
+- **Rules Engine** - Automated traffic handling with priority-based rules, static modifications, and smart fall-through when modifications don't apply
 - **Detect Refusals** - ML-powered detection of LLM refusals with automatic handling
 
 ## Quick Start

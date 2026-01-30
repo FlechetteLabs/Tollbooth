@@ -393,6 +393,7 @@ export interface StaticModification {
   find_replace?: FindReplaceEntry[];
   replace_body?: string;
   header_modifications?: HeaderModification[];
+  allow_intercept?: boolean;  // If true, apply modifications then enter intercept queue
 }
 
 export type LLMGenerationMode = 'generate_once' | 'generate_live';

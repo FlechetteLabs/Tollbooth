@@ -172,17 +172,19 @@ export class RulesEngine extends EventEmitter {
   /**
    * Evaluate request against rules
    * Returns the first matching rule's action
+   * @param excludeRuleIds - Rule IDs to skip (for fall-through when modify_static doesn't change anything)
    */
-  evaluateRequest(flow: TrafficFlow): RuleMatch | null {
-    return this.evaluate(flow, 'request');
+  evaluateRequest(flow: TrafficFlow, excludeRuleIds?: Set<string>): RuleMatch | null {
+    return this.evaluate(flow, 'request', excludeRuleIds);
   }
 
   /**
    * Evaluate response against rules
    * Returns the first matching rule's action
+   * @param excludeRuleIds - Rule IDs to skip (for fall-through when modify_static doesn't change anything)
    */
-  evaluateResponse(flow: TrafficFlow): RuleMatch | null {
-    return this.evaluate(flow, 'response');
+  evaluateResponse(flow: TrafficFlow, excludeRuleIds?: Set<string>): RuleMatch | null {
+    return this.evaluate(flow, 'response', excludeRuleIds);
   }
 
   /**
@@ -283,14 +285,16 @@ export class RulesEngine extends EventEmitter {
    * @param content - The original content
    * @param mod - The modification to apply
    * @param flow - Optional flow context for variable interpolation
+   * @returns Object with result string and whether content was actually modified
    */
-  applyStaticModification(content: string, mod: StaticModification, flow?: TrafficFlow): string {
+  applyStaticModification(content: string, mod: StaticModification, flow?: TrafficFlow): { result: string; modified: boolean } {
     let result = content;
 
     // Full body replacement takes precedence
     if (mod.replace_body !== undefined) {
       // Interpolate variables in the replacement body
-      return this.interpolateVariables(mod.replace_body, flow);
+      const newContent = this.interpolateVariables(mod.replace_body, flow);
+      return { result: newContent, modified: newContent !== content };
     }
 
     // Apply find/replace operations
@@ -322,12 +326,12 @@ export class RulesEngine extends EventEmitter {
       }
     }
 
-    return result;
+    return { result, modified: result !== content };
   }
 
   /**
    * Apply header modifications to headers object
-   * Returns a new headers object with modifications applied
+   * Returns a new headers object with modifications applied and whether any changes were made
    * @param headers - Original headers object
    * @param modifications - Array of modifications to apply
    * @param flow - Optional flow context for variable interpolation
@@ -336,8 +340,9 @@ export class RulesEngine extends EventEmitter {
     headers: Record<string, string>,
     modifications: HeaderModification[],
     flow?: TrafficFlow
-  ): Record<string, string> {
+  ): { result: Record<string, string>; modified: boolean } {
     const result = { ...headers };
+    let modified = false;
 
     for (const mod of modifications) {
       const key = mod.key;
@@ -346,18 +351,26 @@ export class RulesEngine extends EventEmitter {
         case 'set':
           // Set or overwrite header - interpolate variables in value
           if (mod.value !== undefined) {
-            result[key] = this.interpolateVariables(mod.value, flow);
+            const newValue = this.interpolateVariables(mod.value, flow);
+            if (result[key] !== newValue) {
+              result[key] = newValue;
+              modified = true;
+            }
           }
           break;
 
         case 'remove':
           // Remove header (try both exact case and lowercase)
-          delete result[key];
+          if (result[key] !== undefined) {
+            delete result[key];
+            modified = true;
+          }
           // Also try lowercase version
           const lowerKey = key.toLowerCase();
           for (const k of Object.keys(result)) {
             if (k.toLowerCase() === lowerKey) {
               delete result[k];
+              modified = true;
             }
           }
           break;
@@ -378,16 +391,22 @@ export class RulesEngine extends EventEmitter {
               const currentValue = result[targetKey];
               // Interpolate variables in the replacement value
               const replacement = this.interpolateVariables(mod.value || '', flow);
+              let newValue = currentValue;
 
               if (mod.regex) {
                 try {
                   const regex = new RegExp(mod.find, 'g');
-                  result[targetKey] = currentValue.replace(regex, replacement);
+                  newValue = currentValue.replace(regex, replacement);
                 } catch (err) {
                   console.error(`Invalid regex in header find/replace: ${mod.find}`, err);
                 }
               } else {
-                result[targetKey] = currentValue.split(mod.find).join(replacement);
+                newValue = currentValue.split(mod.find).join(replacement);
+              }
+
+              if (newValue !== currentValue) {
+                result[targetKey] = newValue;
+                modified = true;
               }
             }
           }
@@ -395,7 +414,7 @@ export class RulesEngine extends EventEmitter {
       }
     }
 
-    return result;
+    return { result, modified };
   }
 
   /**
@@ -407,10 +426,10 @@ export class RulesEngine extends EventEmitter {
 
   // ============ Private Methods ============
 
-  private evaluate(flow: TrafficFlow, direction: RuleDirection): RuleMatch | null {
+  private evaluate(flow: TrafficFlow, direction: RuleDirection, excludeRuleIds?: Set<string>): RuleMatch | null {
     // Only evaluate enabled rules with matching direction
     const applicableRules = this.rules.filter(
-      r => r.enabled && r.direction === direction
+      r => r.enabled && r.direction === direction && (!excludeRuleIds || !excludeRuleIds.has(r.id))
     );
 
     for (const rule of applicableRules) {
