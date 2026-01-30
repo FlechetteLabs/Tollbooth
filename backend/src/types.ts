@@ -278,7 +278,7 @@ export interface StoredRequest {
 
 export type RuleDirection = 'request' | 'response';
 export type MatchType = 'exact' | 'contains' | 'regex';
-export type RuleActionType = 'passthrough' | 'intercept' | 'serve_from_store' | 'modify_static' | 'modify_llm' | 'auto_hide' | 'auto_clear';
+export type RuleActionType = 'passthrough' | 'intercept' | 'drop' | 'serve_from_store' | 'modify_static' | 'modify_llm' | 'auto_hide' | 'auto_clear';
 
 export interface MatchCondition {
   match: MatchType;

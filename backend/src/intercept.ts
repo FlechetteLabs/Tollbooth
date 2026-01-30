@@ -373,6 +373,12 @@ class InterceptManager extends EventEmitter {
           this.forwardRequest(flow.flow_id);
           return;
 
+        case 'drop':
+          // Drop the request - don't forward to server
+          console.log(`[InterceptManager] Dropping request by rule: ${ruleMatch.rule.name}`);
+          this.dropRequest(flow.flow_id);
+          return;
+
         case 'modify_static':
           // Apply static modification and forward (or intercept if allow_intercept is set)
           if (ruleMatch.rule.action.static_modification) {
@@ -573,6 +579,12 @@ class InterceptManager extends EventEmitter {
         case 'passthrough':
           // Just forward without adding to pending queue
           this.forwardResponse(flow.flow_id);
+          return;
+
+        case 'drop':
+          // Drop the response - don't forward to client
+          console.log(`[InterceptManager] Dropping response by rule: ${ruleMatch.rule.name}`);
+          this.dropResponse(flow.flow_id);
           return;
 
         case 'modify_static':
@@ -911,6 +923,23 @@ class InterceptManager extends EventEmitter {
     if (this.proxyWs) {
       const message = JSON.stringify({
         cmd: 'drop',
+        flow_id: flowId,
+      });
+      this.proxyWs.send(message);
+    }
+
+    this.emit('intercept_dropped', flowId);
+  }
+
+  /**
+   * Drop response - don't send to client
+   */
+  dropResponse(flowId: string): void {
+    storage.removePendingIntercept(flowId);
+
+    if (this.proxyWs) {
+      const message = JSON.stringify({
+        cmd: 'drop_response',
         flow_id: flowId,
       });
       this.proxyWs.send(message);

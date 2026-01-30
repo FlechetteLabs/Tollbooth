@@ -1557,6 +1557,7 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
               >
                 <option value="passthrough">Passthrough (log only)</option>
                 <option value="intercept">Intercept (manual edit)</option>
+                <option value="drop">Drop (block traffic)</option>
                 <option value="serve_from_store">Serve from Data Store</option>
                 <option value="modify_static">Modify Body & Headers</option>
                 <option value="modify_llm">LLM Modification</option>

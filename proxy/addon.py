@@ -143,6 +143,13 @@ class TrafficInspectorAddon:
                 self.flow_modifications[flow_id] = {"drop": True}
                 self.pending_flows[flow_id].set()
 
+        elif cmd == "drop_response":
+            flow_id = data.get("flow_id")
+            ctx.log.info(f"Drop response command for flow {flow_id}")
+            if flow_id in self.response_pending:
+                self.response_modifications[flow_id] = {"drop": True}
+                self.response_pending[flow_id].set()
+
         elif cmd == "forward_response":
             flow_id = data.get("flow_id")
             ctx.log.info(f"Forward response command for flow {flow_id}")
@@ -562,6 +569,10 @@ class TrafficInspectorAddon:
             if flow_id in self.response_modifications:
                 mods = self.response_modifications.pop(flow_id)
                 ctx.log.info(f"Found modifications for flow {flow_id}: keys={list(mods.keys())}")
+                if mods.get("drop"):
+                    ctx.log.info(f"Dropping response for flow {flow_id}")
+                    flow.kill()
+                    return
                 if "body" in mods:
                     ctx.log.info(f"Modifying response body for flow {flow_id}")
                     flow.response.set_text(mods["body"])
