@@ -589,6 +589,9 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
   const [headerModifications, setHeaderModifications] = useState<HeaderModification[]>(
     rule?.action.static_modification?.header_modifications || []
   );
+  const [allowIntercept, setAllowIntercept] = useState(
+    rule?.action.static_modification?.allow_intercept || false
+  );
 
   // LLM modification state
   const [llmPrompt, setLlmPrompt] = useState(rule?.action.llm_modification?.prompt || '');
@@ -766,6 +769,9 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
       }
       if (hasHeaderMods) {
         action.static_modification.header_modifications = headerModifications.filter(h => h.key.trim());
+      }
+      if (allowIntercept) {
+        action.static_modification.allow_intercept = true;
       }
     } else if (actionType === 'modify_llm') {
       // Either prompt or template is required
@@ -1818,6 +1824,22 @@ export function RuleEditor({ rule, defaultDirection, onSave, onClose }: RuleEdit
                   ))}
                   <p className="text-xs text-inspector-muted mt-1">
                     Set: add/overwrite a header. Remove: delete a header. Find/Replace: modify header value.
+                  </p>
+                </div>
+
+                {/* Allow Intercept Option */}
+                <div className="pt-2 border-t border-inspector-border">
+                  <label className="flex items-center gap-2 text-sm text-inspector-text cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allowIntercept}
+                      onChange={(e) => setAllowIntercept(e.target.checked)}
+                      className="rounded"
+                    />
+                    Allow intercept after modification
+                  </label>
+                  <p className="text-xs text-inspector-muted mt-1 ml-5">
+                    Apply modifications, then add to intercept queue for manual review before forwarding
                   </p>
                 </div>
               </div>
