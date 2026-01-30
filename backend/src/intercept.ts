@@ -414,28 +414,37 @@ class InterceptManager extends EventEmitter {
 
             // Check if allow_intercept is set - apply modifications then add to intercept queue
             if (mod.allow_intercept) {
-              console.log(`[InterceptManager] Rule has allow_intercept, adding to queue after modifications`);
-              // Store the modifications in the flow for later use
+              console.log(`[InterceptManager] Rule has allow_intercept, applying modifications then adding to queue`);
+
+              // Store original before modifying
+              flow.original_request = { ...flow.request };
+
+              // Apply modifications to flow object
+              if (modifications.body !== undefined) {
+                flow.request = { ...flow.request, content: modifications.body };
+              }
+              if (modifications.headers) {
+                flow.request = { ...flow.request, headers: modifications.headers };
+              }
+              flow.request_modified = true;
+
+              // Update storage with modified flow
+              storage.updateTraffic(flow.flow_id, {
+                request: flow.request,
+                original_request: flow.original_request,
+                request_modified: true,
+                request_modified_by_rule: ruleRef,
+              });
+
+              // Add to pending queue (now contains modified flow)
               const pending: PendingIntercept = {
                 flow_id: flow.flow_id,
                 timestamp: Date.now(),
                 flow,
                 type: 'request',
               };
-              // Forward with modifications but also add to queue
-              // The pending intercept will show the pre-modified state
               storage.addPendingIntercept(pending);
-              storage.updateTraffic(flow.flow_id, { request_modified_by_rule: ruleRef });
               this.emit('intercept_request', pending);
-              // Send modifications to proxy so user sees modified version in intercept
-              if (this.proxyWs) {
-                const message = JSON.stringify({
-                  cmd: 'apply_modifications',
-                  flow_id: flow.flow_id,
-                  modifications,
-                });
-                this.proxyWs.send(message);
-              }
               return;
             }
 
@@ -607,7 +616,29 @@ class InterceptManager extends EventEmitter {
 
             // Check if allow_intercept is set - apply modifications then add to intercept queue
             if (mod.allow_intercept) {
-              console.log(`[InterceptManager] Rule has allow_intercept, adding to queue after modifications`);
+              console.log(`[InterceptManager] Rule has allow_intercept, applying modifications then adding to queue`);
+
+              // Store original before modifying
+              flow.original_response = { ...flow.response! };
+
+              // Apply modifications to flow object
+              if (modifications.body !== undefined) {
+                flow.response = { ...flow.response!, content: modifications.body };
+              }
+              if (modifications.headers) {
+                flow.response = { ...flow.response!, headers: modifications.headers };
+              }
+              flow.response_modified = true;
+
+              // Update storage with modified flow
+              storage.updateTraffic(flow.flow_id, {
+                response: flow.response,
+                original_response: flow.original_response,
+                response_modified: true,
+                response_modified_by_rule: ruleRef,
+              });
+
+              // Add to pending queue (now contains modified flow)
               const pending: PendingIntercept = {
                 flow_id: flow.flow_id,
                 timestamp: Date.now(),
@@ -615,17 +646,7 @@ class InterceptManager extends EventEmitter {
                 type: 'response',
               };
               storage.addPendingIntercept(pending);
-              storage.updateTraffic(flow.flow_id, { response_modified_by_rule: ruleRef });
               this.emit('intercept_response', pending);
-              // Send modifications to proxy so user sees modified version in intercept
-              if (this.proxyWs) {
-                const message = JSON.stringify({
-                  cmd: 'apply_modifications',
-                  flow_id: flow.flow_id,
-                  modifications,
-                });
-                this.proxyWs.send(message);
-              }
               return;
             }
 
