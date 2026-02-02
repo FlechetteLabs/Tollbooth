@@ -77,10 +77,27 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-// Get all traffic
+// Get all traffic (with optional pagination)
 app.get('/api/traffic', (req, res) => {
-  const traffic = storage.getAllTraffic();
-  res.json({ traffic, total: traffic.length });
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+  const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+
+  const allTraffic = storage.getAllTraffic();
+  const total = allTraffic.length;
+
+  // If no pagination requested and data is large, return paginated by default
+  if (limit === undefined && total > 500) {
+    // Return first 500 items by default for large datasets
+    const traffic = allTraffic.slice(0, 500);
+    res.json({ traffic, total, hasMore: total > 500, limit: 500, offset: 0 });
+  } else if (limit !== undefined) {
+    // Explicit pagination requested
+    const traffic = allTraffic.slice(offset, offset + limit);
+    res.json({ traffic, total, hasMore: offset + limit < total, limit, offset });
+  } else {
+    // Small dataset, return all
+    res.json({ traffic: allTraffic, total });
+  }
 });
 
 // Get single traffic flow
@@ -2015,12 +2032,14 @@ frontendWss.on('connection', (ws) => {
   console.log('Frontend client connected');
   frontendClients.add(ws);
 
-  // Send current state
+  // Send current state (excluding large datasets - frontend will fetch via REST API)
+  // Traffic and conversations are NOT included to avoid RangeError: Invalid string length
+  // when there are many flows (6000+). Frontend fetches these via paginated REST API.
   ws.send(JSON.stringify({
     type: 'init',
     data: {
-      traffic: storage.getAllTraffic(),
-      conversations: storage.getAllConversations(),
+      traffic: [],  // Frontend fetches via /api/traffic
+      conversations: [],  // Frontend fetches via /api/conversations
       interceptMode: interceptManager.getInterceptMode(),
       rulesEnabled: interceptManager.getRulesEnabled(),
       pendingIntercepts: interceptManager.getPendingIntercepts(),

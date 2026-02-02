@@ -27,6 +27,7 @@ interface AppState {
   // Traffic
   traffic: Map<string, TrafficFlow>;
   addTraffic: (flow: TrafficFlow) => void;
+  addTrafficBulk: (flows: TrafficFlow[]) => void;
   updateTraffic: (flowId: string, updates: Partial<TrafficFlow>) => void;
   removeTraffic: (flowId: string) => void;
   selectedTrafficId: string | null;
@@ -35,6 +36,7 @@ interface AppState {
   // Conversations
   conversations: Map<string, Conversation>;
   addOrUpdateConversation: (conversation: Conversation) => void;
+  setConversationsBulk: (conversations: Conversation[]) => void;
   selectedConversationId: string | null;
   setSelectedConversationId: (id: string | null) => void;
 
@@ -96,6 +98,14 @@ export const useAppStore = create<AppState>((set) => ({
       newTraffic.set(flow.flow_id, flow);
       return { traffic: newTraffic };
     }),
+  addTrafficBulk: (flows) =>
+    set((state) => {
+      const newTraffic = new Map(state.traffic);
+      for (const flow of flows) {
+        newTraffic.set(flow.flow_id, flow);
+      }
+      return { traffic: newTraffic };
+    }),
   updateTraffic: (flowId, updates) =>
     set((state) => {
       const existing = state.traffic.get(flowId);
@@ -119,6 +129,14 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const newConversations = new Map(state.conversations);
       newConversations.set(conversation.conversation_id, conversation);
+      return { conversations: newConversations };
+    }),
+  setConversationsBulk: (conversations) =>
+    set((state) => {
+      const newConversations = new Map(state.conversations);
+      for (const conv of conversations) {
+        newConversations.set(conv.conversation_id, conv);
+      }
       return { conversations: newConversations };
     }),
   selectedConversationId: null,

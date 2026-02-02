@@ -10,6 +10,7 @@ import { useAppStore } from '../stores/appStore';
 import { TrafficFlow, Conversation, PendingIntercept, PendingRefusal, InterceptMode } from '../types';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:2002';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:2001';
 const RECONNECT_DELAY = 3000;
 
 interface WSMessage {
@@ -25,6 +26,47 @@ let isConnecting = false;
 
 // Store reference for message handling (set by first hook instance)
 let storeRef: ReturnType<typeof useAppStore> | null = null;
+let isLoadingInitialData = false;
+
+// Fetch traffic and conversations via REST API (paginated for large datasets)
+async function fetchInitialData() {
+  if (!storeRef || isLoadingInitialData) return;
+  isLoadingInitialData = true;
+
+  try {
+    // Fetch traffic in pages to avoid memory issues
+    let hasMore = true;
+    let offset = 0;
+    const limit = 500;
+
+    while (hasMore) {
+      const res = await fetch(`${API_BASE}/api/traffic?limit=${limit}&offset=${offset}`);
+      if (!res.ok) {
+        console.error('Failed to fetch traffic:', res.status);
+        break;
+      }
+      const data = await res.json();
+      if (data.traffic && data.traffic.length > 0) {
+        storeRef.addTrafficBulk(data.traffic);
+      }
+      hasMore = data.hasMore === true;
+      offset += limit;
+    }
+
+    // Fetch conversations (usually smaller dataset)
+    const convRes = await fetch(`${API_BASE}/api/conversations`);
+    if (convRes.ok) {
+      const convData = await convRes.json();
+      if (convData.conversations && convData.conversations.length > 0) {
+        storeRef.setConversationsBulk(convData.conversations);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch initial data:', err);
+  } finally {
+    isLoadingInitialData = false;
+  }
+}
 
 function handleMessage(message: WSMessage) {
   if (!storeRef) return;
@@ -46,6 +88,7 @@ function handleMessage(message: WSMessage) {
 
   switch (message.type) {
     case 'init':
+      // Initialize with state from WebSocket (traffic/conversations are empty - fetched via REST)
       initializeState(
         message.data as {
           traffic: TrafficFlow[];
@@ -56,6 +99,9 @@ function handleMessage(message: WSMessage) {
           pendingRefusals?: PendingRefusal[];
         }
       );
+      // Fetch traffic and conversations via paginated REST API
+      // This avoids RangeError: Invalid string length with large datasets
+      fetchInitialData();
       break;
 
     case 'traffic':
