@@ -46,6 +46,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # ============ Glossopetrae Integration (Optional) ============
+        # Enable Glossopetrae for backend search/filter by decoded content
+        - ENABLE_GLOSSOPETRAE=${ENABLE_GLOSSOPETRAE:-false}
+        - GLOSSOPETRAE_VERSION=${GLOSSOPETRAE_VERSION:-main}
+        - GLOSSOPETRAE_REPO=${GLOSSOPETRAE_REPO:-https://github.com/plinylmao/GLOSSOPETRAE.git}
     ports:
       - "2000:3000"  # REST API (browser fetches data)
       - "2002:3002"  # WebSocket for frontend (browser real-time updates)
@@ -101,14 +107,26 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # ============ Glossopetrae Integration (Optional) ============
+        # Enable Glossopetrae conlang decoder for agent communication research
+        # Set to 'true' to install Glossopetrae during build
+        - ENABLE_GLOSSOPETRAE=${ENABLE_GLOSSOPETRAE:-false}
+        # Version to install: 'latest', 'main', or a specific tag like 'v1.0.0'
+        - GLOSSOPETRAE_VERSION=${GLOSSOPETRAE_VERSION:-main}
+        # Repository URL (can be overridden for forks)
+        - GLOSSOPETRAE_REPO=${GLOSSOPETRAE_REPO:-https://github.com/plinylmao/GLOSSOPETRAE.git}
     ports:
       - "5173:5173"
     volumes:
       - ./frontend/src:/app/src:ro
       - ./frontend/index.html:/app/index.html:ro
+      # For local Glossopetrae development, mount your local checkout:
+      # - ../GLOSSOPETRAE/src:/app/src/lib/glossopetrae:ro
     environment:
       - VITE_BACKEND_URL=http://localhost:2000
       - VITE_WS_URL=ws://localhost:2002
+      - VITE_GLOSSOPETRAE_ENABLED=${ENABLE_GLOSSOPETRAE:-false}
     depends_on:
       - backend
     networks:

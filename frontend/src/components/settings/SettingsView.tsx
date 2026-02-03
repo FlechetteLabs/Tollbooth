@@ -14,8 +14,10 @@ import {
   PromptTemplateCategory,
   PromptTemplateVariable,
 } from '../../types';
+import { useAppStore, GlossopetareSeed } from '../../stores/appStore';
+import { isGlossopetraeAvailable, initializeGlossopetrae } from '../../utils/glossopetrae';
 
-type SettingsTab = 'providers' | 'templates';
+type SettingsTab = 'providers' | 'templates' | 'glossopetrae';
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 
@@ -389,6 +391,17 @@ export function SettingsView() {
           >
             Prompt Templates
           </button>
+          <button
+            onClick={() => setSettingsTab('glossopetrae')}
+            className={clsx(
+              'px-4 py-2 text-sm font-medium transition-colors',
+              settingsTab === 'glossopetrae'
+                ? 'text-inspector-accent border-b-2 border-inspector-accent'
+                : 'text-inspector-muted hover:text-inspector-text'
+            )}
+          >
+            🗣️ Glossopetrae
+          </button>
         </div>
 
         {/* Status messages */}
@@ -761,6 +774,11 @@ export function SettingsView() {
           </section>
         )}
 
+        {/* Glossopetrae Tab */}
+        {settingsTab === 'glossopetrae' && (
+          <GlossopetraeSettings />
+        )}
+
         {/* Template Editor Modal */}
         {editingTemplate && (
           <TemplateEditorModal
@@ -775,6 +793,217 @@ export function SettingsView() {
           />
         )}
       </div>
+    </div>
+  );
+}
+
+// Glossopetrae Settings Component
+function GlossopetraeSettings() {
+  const {
+    glossopetraeAvailable,
+    setGlossopetraeAvailable,
+    glossopetraeEnabled,
+    setGlossopetraeEnabled,
+    glossopetraeSeeds,
+    addGlossopetaeSeed,
+    updateGlossopetaeSeed,
+    removeGlossopetaeSeed,
+  } = useAppStore();
+
+  const [newSeedName, setNewSeedName] = useState('');
+  const [newSeedValue, setNewSeedValue] = useState('');
+  const [isChecking, setIsChecking] = useState(false);
+
+  // Check if Glossopetrae is available on mount
+  useEffect(() => {
+    const checkAvailability = async () => {
+      setIsChecking(true);
+      const available = await initializeGlossopetrae();
+      setGlossopetraeAvailable(available);
+      setIsChecking(false);
+    };
+    checkAvailability();
+  }, [setGlossopetraeAvailable]);
+
+  const handleAddSeed = () => {
+    if (!newSeedName.trim() || !newSeedValue.trim()) return;
+
+    addGlossopetaeSeed({
+      id: crypto.randomUUID(),
+      name: newSeedName.trim(),
+      seed: newSeedValue.trim(),
+      active: true,
+    });
+
+    setNewSeedName('');
+    setNewSeedValue('');
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Status Section */}
+      <section className="bg-inspector-surface border border-inspector-border rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-medium text-inspector-text">Glossopetrae Status</h2>
+            <p className="text-xs text-inspector-muted mt-1">
+              Procedural xenolinguistics engine for decoding conlang text
+            </p>
+          </div>
+          {isChecking ? (
+            <span className="text-xs text-inspector-muted animate-pulse">Checking...</span>
+          ) : glossopetraeAvailable ? (
+            <span className="text-xs text-green-400 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-green-400" />
+              Installed
+            </span>
+          ) : (
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-gray-500" />
+              Not Installed
+            </span>
+          )}
+        </div>
+
+        {!glossopetraeAvailable && (
+          <div className="mt-4 p-3 bg-gray-800/50 rounded-lg text-sm text-inspector-muted">
+            <p className="font-medium text-inspector-text mb-1">How to enable Glossopetrae:</p>
+            <code className="block bg-black/30 p-2 rounded mt-2 font-mono text-xs">
+              ENABLE_GLOSSOPETRAE=true docker compose build
+            </code>
+            <p className="mt-2 text-xs">
+              Then restart the containers with <code className="bg-black/30 px-1 rounded">docker compose up</code>
+            </p>
+          </div>
+        )}
+      </section>
+
+      {/* Enable/Disable Toggle */}
+      <section className="bg-inspector-surface border border-inspector-border rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-medium text-inspector-text">Enable Decoding</h2>
+            <p className="text-xs text-inspector-muted mt-1">
+              Show decode buttons in conversation and traffic views
+            </p>
+          </div>
+          <button
+            onClick={() => setGlossopetraeEnabled(!glossopetraeEnabled)}
+            disabled={!glossopetraeAvailable}
+            className={clsx(
+              'relative w-12 h-6 rounded-full transition-colors',
+              glossopetraeEnabled && glossopetraeAvailable
+                ? 'bg-cyan-600'
+                : 'bg-gray-600',
+              !glossopetraeAvailable && 'opacity-50 cursor-not-allowed'
+            )}
+          >
+            <span
+              className={clsx(
+                'absolute top-1 w-4 h-4 rounded-full bg-white transition-transform',
+                glossopetraeEnabled && glossopetraeAvailable ? 'left-7' : 'left-1'
+              )}
+            />
+          </button>
+        </div>
+      </section>
+
+      {/* Seeds Configuration */}
+      <section className="bg-inspector-surface border border-inspector-border rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-inspector-border">
+          <h2 className="font-medium text-inspector-text">Language Seeds</h2>
+          <p className="text-xs text-inspector-muted mt-1">
+            Configure seeds to decode conlang text. The same seed produces the same language.
+          </p>
+        </div>
+
+        {/* Existing Seeds */}
+        <div className="divide-y divide-inspector-border">
+          {glossopetraeSeeds.length === 0 ? (
+            <div className="p-4 text-center text-inspector-muted text-sm">
+              No seeds configured. Add a seed below to enable decoding.
+            </div>
+          ) : (
+            glossopetraeSeeds.map((seed) => (
+              <div key={seed.id} className="p-4 flex items-center gap-4">
+                <button
+                  onClick={() => updateGlossopetaeSeed(seed.id, { active: !seed.active })}
+                  className={clsx(
+                    'w-5 h-5 rounded border flex items-center justify-center',
+                    seed.active
+                      ? 'bg-cyan-600 border-cyan-600 text-white'
+                      : 'bg-transparent border-inspector-border'
+                  )}
+                >
+                  {seed.active && '✓'}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-inspector-text">{seed.name}</div>
+                  <div className="text-xs text-inspector-muted font-mono truncate">{seed.seed}</div>
+                </div>
+                <button
+                  onClick={() => removeGlossopetaeSeed(seed.id)}
+                  className="p-1.5 text-inspector-muted hover:text-inspector-error hover:bg-inspector-error/10 rounded"
+                  title="Remove seed"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Add New Seed */}
+        <div className="p-4 bg-inspector-bg/50 border-t border-inspector-border">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newSeedName}
+              onChange={(e) => setNewSeedName(e.target.value)}
+              placeholder="Name (e.g., Agent Protocol)"
+              className="flex-1 bg-inspector-bg border border-inspector-border rounded px-3 py-2 text-sm text-inspector-text"
+            />
+            <input
+              type="text"
+              value={newSeedValue}
+              onChange={(e) => setNewSeedValue(e.target.value)}
+              placeholder="Seed value"
+              className="flex-1 bg-inspector-bg border border-inspector-border rounded px-3 py-2 text-sm text-inspector-text font-mono"
+            />
+            <button
+              onClick={handleAddSeed}
+              disabled={!newSeedName.trim() || !newSeedValue.trim()}
+              className="px-4 py-2 text-sm rounded bg-cyan-600 hover:bg-cyan-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Add Seed
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Info Section */}
+      <section className="bg-inspector-surface border border-inspector-border rounded-lg p-4">
+        <h2 className="font-medium text-inspector-text mb-2">About Glossopetrae</h2>
+        <p className="text-sm text-inspector-muted">
+          Glossopetrae is a procedural language generation engine that creates complete,
+          internally-consistent constructed languages from a single numeric seed.
+          When agents communicate using Glossopetrae-generated languages, you can decode
+          their messages by configuring the same seed used to generate the language.
+        </p>
+        <p className="text-sm text-inspector-muted mt-2">
+          Learn more at{' '}
+          <a
+            href="https://github.com/plinylmao/GLOSSOPETRAE"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-cyan-400 hover:underline"
+          >
+            github.com/plinylmao/GLOSSOPETRAE
+          </a>
+        </p>
+      </section>
     </div>
   );
 }

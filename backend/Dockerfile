@@ -1,10 +1,17 @@
 FROM node:20-slim
 
+# Glossopetrae build arguments
+ARG ENABLE_GLOSSOPETRAE=false
+ARG GLOSSOPETRAE_VERSION=main
+ARG GLOSSOPETRAE_REPO=https://github.com/plinylmao/GLOSSOPETRAE.git
+
 # Install build dependencies for native modules (needed by @xenova/transformers)
+# Also install git if Glossopetrae is enabled
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
     g++ \
+    $(if [ "$ENABLE_GLOSSOPETRAE" = "true" ]; then echo "git"; fi) \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user (remove existing node user with UID 1000 first)
@@ -29,6 +36,22 @@ COPY scripts ./scripts
 
 COPY tsconfig.json ./
 COPY src ./src
+
+# Clone Glossopetrae if enabled
+RUN if [ "$ENABLE_GLOSSOPETRAE" = "true" ]; then \
+      echo "Installing Glossopetrae (version: $GLOSSOPETRAE_VERSION)..."; \
+      mkdir -p /app/lib; \
+      if [ "$GLOSSOPETRAE_VERSION" = "latest" ] || [ "$GLOSSOPETRAE_VERSION" = "main" ]; then \
+        git clone --depth 1 "$GLOSSOPETRAE_REPO" /tmp/glossopetrae; \
+      else \
+        git clone --depth 1 --branch "$GLOSSOPETRAE_VERSION" "$GLOSSOPETRAE_REPO" /tmp/glossopetrae; \
+      fi; \
+      cp -r /tmp/glossopetrae/src /app/lib/glossopetrae; \
+      rm -rf /tmp/glossopetrae; \
+      echo "Glossopetrae installed successfully"; \
+    else \
+      echo "Glossopetrae disabled - skipping installation"; \
+    fi
 
 RUN npm run build
 

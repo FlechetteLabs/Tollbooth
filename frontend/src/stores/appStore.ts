@@ -15,6 +15,14 @@ import {
 
 export type DisplayMode = 'raw' | 'pretty' | 'aggressive' | 'insane';
 
+// Glossopetrae seed configuration
+export interface GlossopetareSeed {
+  id: string;
+  name: string;
+  seed: string;
+  active: boolean;
+}
+
 interface AppState {
   // Display settings
   displayMode: DisplayMode;
@@ -66,6 +74,18 @@ interface AppState {
   // WebSocket status
   wsConnected: boolean;
   setWsConnected: (connected: boolean) => void;
+
+  // Glossopetrae (conlang decoder)
+  glossopetraeAvailable: boolean;  // Whether the library is installed
+  setGlossopetraeAvailable: (available: boolean) => void;
+  glossopetraeEnabled: boolean;    // User preference to enable/disable
+  setGlossopetraeEnabled: (enabled: boolean) => void;
+  glossopetraeSeeds: GlossopetareSeed[];
+  addGlossopetaeSeed: (seed: GlossopetareSeed) => void;
+  updateGlossopetaeSeed: (id: string, updates: Partial<GlossopetareSeed>) => void;
+  removeGlossopetaeSeed: (id: string) => void;
+  setGlossopetraeSeeds: (seeds: GlossopetareSeed[]) => void;
+  getActiveGlossopetraeSeeds: () => string[];
 
   // Initialize from backend
   initializeState: (data: {
@@ -199,6 +219,33 @@ export const useAppStore = create<AppState>((set) => ({
   // WebSocket status
   wsConnected: false,
   setWsConnected: (connected) => set({ wsConnected: connected }),
+
+  // Glossopetrae (conlang decoder)
+  glossopetraeAvailable: false,
+  setGlossopetraeAvailable: (available) => set({ glossopetraeAvailable: available }),
+  glossopetraeEnabled: true,  // Enabled by default when available
+  setGlossopetraeEnabled: (enabled) => set({ glossopetraeEnabled: enabled }),
+  glossopetraeSeeds: [],
+  addGlossopetaeSeed: (seed) =>
+    set((state) => ({
+      glossopetraeSeeds: [...state.glossopetraeSeeds, seed],
+    })),
+  updateGlossopetaeSeed: (id, updates) =>
+    set((state) => ({
+      glossopetraeSeeds: state.glossopetraeSeeds.map((s) =>
+        s.id === id ? { ...s, ...updates } : s
+      ),
+    })),
+  removeGlossopetaeSeed: (id) =>
+    set((state) => ({
+      glossopetraeSeeds: state.glossopetraeSeeds.filter((s) => s.id !== id),
+    })),
+  setGlossopetraeSeeds: (seeds) => set({ glossopetraeSeeds: seeds }),
+  getActiveGlossopetraeSeeds: () => {
+    // This is a selector, not an action - we need to access it differently
+    // For now, return empty array - components should use the state directly
+    return [];
+  },
 
   // Initialize from backend
   initializeState: (data) =>

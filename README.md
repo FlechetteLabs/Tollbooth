@@ -74,9 +74,32 @@ This tool is designed for **research and development use only**. See the [Securi
 - Data persistence (traffic is written to disk)
 - API key storage
 
+## Glossopetrae Integration (Optional)
+
+Tollbooth optionally integrates with [Glossopetrae](https://github.com/plinylmao/GLOSSOPETRAE), a procedural xenolinguistics engine for decoding conlang text in agent communications.
+
+```bash
+# Enable Glossopetrae during build
+ENABLE_GLOSSOPETRAE=true docker compose build
+
+# Start with Glossopetrae enabled
+ENABLE_GLOSSOPETRAE=true docker compose up
+```
+
+When enabled:
+- Decode buttons appear in conversation and traffic views
+- Configure language seeds in Settings → Glossopetrae
+- Bidirectional translation (decode conlang→English, encode English→conlang in intercept)
+
 ## Future Improvements
 
 - **Content-based message comparison**: The conversation compare view currently uses index-based comparison (message 0 vs message 0, etc.). A more sophisticated content-matching approach would detect insertions, deletions, and moves by comparing message content rather than position.
+
+- **Glossopetrae steganography detection**: Glossopetrae supports hiding secret payloads in normal-looking conlang text. A future "Reveal Hidden" feature could detect and extract steganographic content.
+
+- **Glossopetrae backend search/filter**: Enable searching and filtering traffic by decoded content (requires backend integration).
+
+- **Glossopetrae rules matching**: Allow rules to match on decoded content for automated handling of conlang traffic.
 
 ## License
 
