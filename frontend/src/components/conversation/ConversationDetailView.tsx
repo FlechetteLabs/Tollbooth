@@ -2,11 +2,98 @@
  * Conversation detail view - shows full conversation with messages
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { clsx } from 'clsx';
 import { useAppStore } from '../../stores/appStore';
 import { MessageBubble } from './MessageBubble';
-import { ConversationTurn, ContentBlock } from '../../types';
+import { ConversationTurn, ContentBlock, LLMMessage, ParsedLLMResponse } from '../../types';
+
+type ViewMode = 'modified' | 'original' | 'compare';
+
+/**
+ * Compare two messages to check if they differ
+ */
+function messagesEqual(a: LLMMessage, b: LLMMessage): boolean {
+  if (a.role !== b.role) return false;
+
+  // Compare content
+  if (typeof a.content === 'string' && typeof b.content === 'string') {
+    return a.content === b.content;
+  }
+
+  // If types differ, not equal
+  if (typeof a.content !== typeof b.content) return false;
+
+  // Both are arrays - do deep comparison
+  return JSON.stringify(a.content) === JSON.stringify(b.content);
+}
+
+/**
+ * Compare two content blocks for equality
+ */
+function contentBlocksEqual(a: ContentBlock, b: ContentBlock): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Hook to track container width for responsive layout
+ */
+function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>) {
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    if (!ref.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setWidth(entry.contentRect.width);
+      }
+    });
+
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return width;
+}
+
+/**
+ * Helper component for rendering response content blocks
+ */
+function ResponseContentBlock({ block }: { block: ContentBlock }) {
+  if (block.type === 'text') {
+    return (
+      <div className="whitespace-pre-wrap break-all text-sm">
+        {block.text}
+      </div>
+    );
+  }
+  if (block.type === 'thinking') {
+    return (
+      <div className="bg-purple-900/30 border border-purple-700 rounded-lg p-3 my-2">
+        <div className="text-xs text-purple-400 font-semibold mb-1">
+          Thinking
+        </div>
+        <div className="text-sm whitespace-pre-wrap break-all opacity-80">
+          {block.thinking}
+        </div>
+      </div>
+    );
+  }
+  if (block.type === 'tool_use') {
+    return (
+      <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-3 my-2">
+        <div className="text-xs text-blue-400 font-semibold mb-1">
+          Tool Use: {block.name}
+        </div>
+        <pre className="text-sm font-mono whitespace-pre-wrap break-all">
+          {JSON.stringify(block.input, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+  return null;
+}
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 
@@ -25,13 +112,48 @@ interface TurnViewProps {
 
 function TurnView({ turn, turnIndex }: TurnViewProps) {
   const [expanded, setExpanded] = useState(true);
-  const [showOriginal, setShowOriginal] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const containerWidth = useContainerWidth(containerRef);
 
   const hasModifications = turn.request_modified || turn.response_modified;
 
+  // Default to 'compare' when modifications exist, otherwise 'modified'
+  const [viewMode, setViewMode] = useState<ViewMode>(hasModifications ? 'compare' : 'modified');
+
+  // Responsive: use horizontal layout when width > 700px
+  const useHorizontalLayout = containerWidth > 700;
+
   // Select which data to display based on toggle
-  const displayRequest = showOriginal && turn.original_request ? turn.original_request : turn.request;
-  const displayResponse = showOriginal && turn.original_response ? turn.original_response : turn.response;
+  const displayRequest = viewMode === 'original' && turn.original_request ? turn.original_request : turn.request;
+  const displayResponse = viewMode === 'original' && turn.original_response ? turn.original_response : turn.response;
+
+  // Get original data for comparison
+  const originalRequest = turn.original_request || turn.request;
+  const originalResponse = turn.original_response || turn.response;
+  const modifiedRequest = turn.request;
+  const modifiedResponse = turn.response;
+
+  /**
+   * Check if a specific message at index was modified (request messages)
+   */
+  function isMessageModified(idx: number): boolean {
+    if (!turn.request_modified || !turn.original_request) return false;
+    const orig = turn.original_request.messages[idx];
+    const mod = turn.request.messages[idx];
+    if (!orig || !mod) return true; // Different lengths = modified
+    return !messagesEqual(orig, mod);
+  }
+
+  /**
+   * Check if a specific response content block was modified
+   */
+  function isResponseBlockModified(idx: number): boolean {
+    if (!turn.response_modified || !turn.original_response) return false;
+    const orig = turn.original_response.content[idx];
+    const mod = turn.response?.content[idx];
+    if (!orig || !mod) return true;
+    return !contentBlocksEqual(orig, mod);
+  }
 
   return (
     <div className="border-b border-inspector-border pb-4 mb-4">
@@ -78,16 +200,27 @@ function TurnView({ turn, turnIndex }: TurnViewProps) {
       </button>
 
       {expanded && (
-        <div className="pl-6">
-          {/* Original/Modified toggle */}
+        <div ref={containerRef} className="pl-6">
+          {/* View mode toggle */}
           {hasModifications && (
             <div className="mb-3 flex items-center gap-2">
               <span className="text-xs text-inspector-muted">View:</span>
               <button
-                onClick={() => setShowOriginal(false)}
+                onClick={() => setViewMode('compare')}
                 className={clsx(
                   'px-2 py-1 text-xs rounded',
-                  !showOriginal
+                  viewMode === 'compare'
+                    ? 'bg-inspector-accent text-white'
+                    : 'bg-inspector-surface border border-inspector-border hover:border-inspector-accent'
+                )}
+              >
+                Compare
+              </button>
+              <button
+                onClick={() => setViewMode('modified')}
+                className={clsx(
+                  'px-2 py-1 text-xs rounded',
+                  viewMode === 'modified'
                     ? 'bg-inspector-accent text-white'
                     : 'bg-inspector-surface border border-inspector-border hover:border-inspector-accent'
                 )}
@@ -95,10 +228,10 @@ function TurnView({ turn, turnIndex }: TurnViewProps) {
                 Modified (Sent)
               </button>
               <button
-                onClick={() => setShowOriginal(true)}
+                onClick={() => setViewMode('original')}
                 className={clsx(
                   'px-2 py-1 text-xs rounded',
-                  showOriginal
+                  viewMode === 'original'
                     ? 'bg-inspector-accent text-white'
                     : 'bg-inspector-surface border border-inspector-border hover:border-inspector-accent'
                 )}
@@ -109,12 +242,144 @@ function TurnView({ turn, turnIndex }: TurnViewProps) {
           )}
 
           {/* Request messages */}
-          {displayRequest.messages.map((msg, idx) => (
-            <MessageBubble key={`req-${idx}`} message={msg} />
-          ))}
+          {viewMode === 'compare' && turn.request_modified ? (
+            // Compare view - show differences
+            <div className="space-y-4">
+              {modifiedRequest.messages.map((modMsg, idx) => {
+                const origMsg = originalRequest.messages[idx];
+                const isDifferent = !origMsg || !messagesEqual(origMsg, modMsg);
+
+                if (!isDifferent && origMsg) {
+                  // Message unchanged - render normally
+                  return <MessageBubble key={`req-${idx}`} message={modMsg} />;
+                }
+
+                // Message differs - render comparison
+                return (
+                  <div
+                    key={`req-${idx}`}
+                    className={clsx(
+                      'gap-2',
+                      useHorizontalLayout ? 'flex' : 'space-y-2'
+                    )}
+                  >
+                    {origMsg && (
+                      <div className={useHorizontalLayout ? 'flex-1 min-w-0' : ''}>
+                        <MessageBubble
+                          message={origMsg}
+                          label="Original"
+                          variant="original"
+                        />
+                      </div>
+                    )}
+                    <div className={useHorizontalLayout ? 'flex-1 min-w-0' : ''}>
+                      <MessageBubble
+                        message={modMsg}
+                        label="Modified"
+                        variant="modified"
+                        isModified
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+              {/* Handle case where original has more messages than modified */}
+              {originalRequest.messages.length > modifiedRequest.messages.length &&
+                originalRequest.messages.slice(modifiedRequest.messages.length).map((origMsg, idx) => (
+                  <div
+                    key={`req-removed-${idx}`}
+                    className={clsx(
+                      'gap-2',
+                      useHorizontalLayout ? 'flex' : 'space-y-2'
+                    )}
+                  >
+                    <div className={useHorizontalLayout ? 'flex-1 min-w-0' : ''}>
+                      <MessageBubble
+                        message={origMsg}
+                        label="Removed"
+                        variant="original"
+                      />
+                    </div>
+                    {useHorizontalLayout && (
+                      <div className="flex-1 min-w-0 flex items-center justify-center text-inspector-muted text-sm italic">
+                        (removed)
+                      </div>
+                    )}
+                  </div>
+                ))
+              }
+            </div>
+          ) : (
+            // Modified or Original view
+            displayRequest.messages.map((msg, idx) => (
+              <MessageBubble
+                key={`req-${idx}`}
+                message={msg}
+                isModified={viewMode === 'modified' && isMessageModified(idx)}
+              />
+            ))
+          )}
 
           {/* Response */}
-          {displayResponse && displayResponse.content.length > 0 && (
+          {viewMode === 'compare' && turn.response_modified && modifiedResponse && originalResponse ? (
+            // Compare view for response
+            <div className="mt-4 pt-4 border-t border-inspector-border">
+              <div className="text-xs font-semibold text-green-400 mb-2">
+                ASSISTANT RESPONSE
+                {modifiedResponse.stop_reason && (
+                  <span className="ml-2 text-inspector-muted">
+                    (stop: {modifiedResponse.stop_reason})
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2">
+                {modifiedResponse.content.map((modBlock: ContentBlock, idx: number) => {
+                  const origBlock = originalResponse.content[idx];
+                  const isDifferent = !origBlock || !contentBlocksEqual(origBlock, modBlock);
+
+                  if (!isDifferent && origBlock) {
+                    // Block unchanged - render normally
+                    return (
+                      <div key={idx} className="bg-inspector-surface border border-inspector-border rounded-lg p-3">
+                        <ResponseContentBlock block={modBlock} />
+                      </div>
+                    );
+                  }
+
+                  // Block differs - render comparison
+                  return (
+                    <div
+                      key={idx}
+                      className={clsx(
+                        'gap-2',
+                        useHorizontalLayout ? 'flex' : 'space-y-2'
+                      )}
+                    >
+                      {origBlock && (
+                        <div className={clsx(
+                          'bg-inspector-surface border border-gray-600 border-l-4 border-l-gray-500 rounded-lg p-3 opacity-75',
+                          useHorizontalLayout ? 'flex-1 min-w-0' : ''
+                        )}>
+                          <div className="text-[10px] text-gray-400 mb-1 font-semibold">ORIGINAL</div>
+                          <ResponseContentBlock block={origBlock} />
+                        </div>
+                      )}
+                      <div className={clsx(
+                        'bg-inspector-surface border border-orange-700 border-l-4 border-l-orange-500 rounded-lg p-3',
+                        useHorizontalLayout ? 'flex-1 min-w-0' : ''
+                      )}>
+                        <div className="text-[10px] text-orange-400 mb-1 font-semibold flex items-center gap-1">
+                          <span className="text-orange-500">⚡</span> MODIFIED
+                        </div>
+                        <ResponseContentBlock block={modBlock} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : displayResponse && displayResponse.content.length > 0 ? (
+            // Modified or Original view
             <div className="mt-4 pt-4 border-t border-inspector-border">
               <div className="text-xs font-semibold text-green-400 mb-2">
                 ASSISTANT RESPONSE
@@ -126,48 +391,19 @@ function TurnView({ turn, turnIndex }: TurnViewProps) {
               </div>
               <div className="bg-inspector-surface border border-inspector-border rounded-lg p-3">
                 {displayResponse.content.map((block: ContentBlock, idx: number) => {
-                  if (block.type === 'text') {
-                    return (
-                      <div key={idx} className="whitespace-pre-wrap break-all text-sm">
-                        {block.text}
-                      </div>
-                    );
-                  }
-                  if (block.type === 'thinking') {
-                    return (
-                      <div
-                        key={idx}
-                        className="bg-purple-900/30 border border-purple-700 rounded-lg p-3 my-2"
-                      >
-                        <div className="text-xs text-purple-400 font-semibold mb-1">
-                          Thinking
-                        </div>
-                        <div className="text-sm whitespace-pre-wrap break-all opacity-80">
-                          {block.thinking}
-                        </div>
-                      </div>
-                    );
-                  }
-                  if (block.type === 'tool_use') {
-                    return (
-                      <div
-                        key={idx}
-                        className="bg-blue-900/30 border border-blue-700 rounded-lg p-3 my-2"
-                      >
-                        <div className="text-xs text-blue-400 font-semibold mb-1">
-                          Tool Use: {block.name}
-                        </div>
-                        <pre className="text-sm font-mono whitespace-pre-wrap break-all">
-                          {JSON.stringify(block.input, null, 2)}
-                        </pre>
-                      </div>
-                    );
-                  }
-                  return null;
+                  const showModified = viewMode === 'modified' && isResponseBlockModified(idx);
+                  return (
+                    <div key={idx} className="relative">
+                      {showModified && (
+                        <span className="absolute -left-1 top-0 text-orange-500 text-xs" title="Modified">⚡</span>
+                      )}
+                      <ResponseContentBlock block={block} />
+                    </div>
+                  );
                 })}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>

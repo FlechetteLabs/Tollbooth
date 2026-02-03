@@ -74,6 +74,10 @@ This tool is designed for **research and development use only**. See the [Securi
 - Data persistence (traffic is written to disk)
 - API key storage
 
+## Future Improvements
+
+- **Content-based message comparison**: The conversation compare view currently uses index-based comparison (message 0 vs message 0, etc.). A more sophisticated content-matching approach would detect insertions, deletions, and moves by comparing message content rather than position.
+
 ## License
 
 AGPL-3.0 - See [LICENSE](LICENSE) for details.

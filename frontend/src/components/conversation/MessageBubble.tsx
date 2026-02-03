@@ -7,6 +7,9 @@ import { LLMMessage, ContentBlock } from '../../types';
 
 interface MessageBubbleProps {
   message: LLMMessage;
+  isModified?: boolean;  // Show lightning bolt indicator
+  label?: string;        // Optional label (e.g., "Original", "Modified")
+  variant?: 'default' | 'original' | 'modified';  // Styling variant for compare view
 }
 
 function renderContentBlock(block: ContentBlock, idx: number) {
@@ -105,29 +108,56 @@ function renderContentBlock(block: ContentBlock, idx: number) {
   }
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, isModified, label, variant = 'default' }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
+
+  // Determine border styling based on variant
+  const getBorderClass = () => {
+    if (variant === 'original') {
+      return 'border-l-4 border-l-gray-500';
+    }
+    if (variant === 'modified') {
+      return 'border-l-4 border-l-orange-500';
+    }
+    return '';
+  };
 
   return (
     <div
       className={clsx(
         'mb-4',
-        isUser ? 'ml-8' : 'mr-8'
+        isUser ? 'ml-8' : 'mr-8',
+        variant === 'original' && 'opacity-75'
       )}
     >
-      {/* Role label */}
+      {/* Role label with optional modification indicator */}
       <div
         className={clsx(
-          'text-xs font-semibold mb-1',
+          'text-xs font-semibold mb-1 flex items-center gap-1',
           isUser
-            ? 'text-blue-400 text-right'
+            ? 'text-blue-400 justify-end'
             : isSystem
             ? 'text-gray-400'
             : 'text-green-400'
         )}
       >
-        {message.role.toUpperCase()}
+        {isModified && (
+          <span className="text-orange-500" title="Modified">⚡</span>
+        )}
+        <span>{message.role.toUpperCase()}</span>
+        {label && (
+          <span className={clsx(
+            'ml-1 px-1.5 py-0.5 rounded text-[10px]',
+            variant === 'original'
+              ? 'bg-gray-700 text-gray-300'
+              : variant === 'modified'
+              ? 'bg-orange-900/50 text-orange-300'
+              : 'bg-inspector-surface'
+          )}>
+            {label}
+          </span>
+        )}
       </div>
 
       {/* Message content */}
@@ -138,7 +168,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             ? 'bg-blue-900/30 border border-blue-800'
             : isSystem
             ? 'bg-gray-800/50 border border-gray-700'
-            : 'bg-inspector-surface border border-inspector-border'
+            : 'bg-inspector-surface border border-inspector-border',
+          getBorderClass()
         )}
       >
         {typeof message.content === 'string' ? (
