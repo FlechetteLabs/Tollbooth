@@ -70,9 +70,8 @@ function renderContentBlock(block: ContentBlock, idx: number) {
           </div>
           <pre className="text-sm font-mono whitespace-pre-wrap break-all">
             {typeof block.content === 'string'
-              ? block.content.slice(0, 1000)
-              : JSON.stringify(block.content, null, 2).slice(0, 1000)}
-            {(typeof block.content === 'string' ? block.content.length : JSON.stringify(block.content).length) > 1000 && '...'}
+              ? block.content
+              : JSON.stringify(block.content, null, 2)}
           </pre>
         </div>
       );
@@ -174,12 +173,7 @@ export function MessageBubble({ message, isModified, label, variant = 'default' 
       >
         {typeof message.content === 'string' ? (
           <div className="whitespace-pre-wrap break-all text-sm">
-            {message.content.slice(0, 2000)}
-            {message.content.length > 2000 && (
-              <span className="text-inspector-muted">
-                ... ({message.content.length - 2000} more chars)
-              </span>
-            )}
+            {message.content}
           </div>
         ) : (
           <div className="text-sm">
