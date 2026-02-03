@@ -9,6 +9,8 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { PendingIntercept, InterceptMode, RuleDirection, RuleActionType } from '../../types';
 import { DisplayModeToggle, formatContent } from '../shared/DisplayModeToggle';
 import { GenerateMockModal } from '../shared/GenerateMockModal';
+import { GlossopetraeDecodePanel } from '../shared/GlossopetraeDecodePanel';
+import { encode as glossopetraeEncode } from '../../utils/glossopetrae';
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 
@@ -194,6 +196,123 @@ function HeaderEditor({ headers, onChange, readOnly }: HeaderEditorProps) {
   );
 }
 
+interface BodyEditorProps {
+  value: string;
+  onChange: (value: string) => void;
+}
+
+/**
+ * Body editor with Glossopetrae encode support for intercept view
+ */
+function BodyEditor({ value, onChange }: BodyEditorProps) {
+  const {
+    glossopetraeAvailable,
+    glossopetraeEnabled,
+    glossopetraeSeeds,
+  } = useAppStore();
+  const [isEncoding, setIsEncoding] = useState(false);
+  const [encodeError, setEncodeError] = useState<string | null>(null);
+
+  const activeSeeds = glossopetraeSeeds.filter((s) => s.active).map((s) => s.seed);
+  const canEncode = glossopetraeAvailable && glossopetraeEnabled && activeSeeds.length > 0;
+
+  const handleEncode = async () => {
+    if (!canEncode || !value) return;
+
+    setIsEncoding(true);
+    setEncodeError(null);
+
+    try {
+      // Use first active seed for encoding
+      const seed = activeSeeds[0];
+      const result = await glossopetraeEncode(value, seed);
+
+      if (result && result !== value) {
+        onChange(result);
+      } else {
+        setEncodeError('Could not encode text');
+      }
+    } catch (err) {
+      setEncodeError(err instanceof Error ? err.message : 'Encode failed');
+    } finally {
+      setIsEncoding(false);
+    }
+  };
+
+  const getEncodeButtonState = () => {
+    if (!glossopetraeAvailable) {
+      return {
+        disabled: true,
+        text: 'Encode Glossopetrae',
+        title: 'Glossopetrae not installed. Enable with ENABLE_GLOSSOPETRAE=true in docker-compose.',
+        className: 'opacity-50 cursor-not-allowed',
+      };
+    }
+    if (!glossopetraeEnabled) {
+      return {
+        disabled: true,
+        text: 'Encode Glossopetrae',
+        title: 'Glossopetrae disabled. Enable in Settings.',
+        className: 'opacity-50 cursor-not-allowed',
+      };
+    }
+    if (activeSeeds.length === 0) {
+      return {
+        disabled: true,
+        text: 'Encode Glossopetrae',
+        title: 'No seeds configured. Add seeds in Settings.',
+        className: 'opacity-50 cursor-not-allowed',
+      };
+    }
+    if (isEncoding) {
+      return {
+        disabled: true,
+        text: 'Encoding...',
+        title: 'Encoding in progress',
+        className: 'opacity-75',
+      };
+    }
+    return {
+      disabled: false,
+      text: 'Encode Glossopetrae',
+      title: 'Encode English to conlang',
+      className: '',
+    };
+  };
+
+  const buttonState = getEncodeButtonState();
+
+  return (
+    <div className="flex flex-col h-full min-h-[300px]">
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full flex-1 bg-inspector-bg border border-inspector-border rounded-lg p-3 font-mono text-sm resize-none focus:outline-none focus:border-inspector-accent"
+        spellCheck={false}
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          onClick={handleEncode}
+          disabled={buttonState.disabled}
+          title={buttonState.title}
+          className={clsx(
+            'px-2 py-1 text-xs rounded border transition-colors',
+            buttonState.disabled
+              ? 'bg-gray-800 border-gray-700 text-gray-500'
+              : 'bg-cyan-900/30 border-cyan-700 text-cyan-400 hover:bg-cyan-900/50',
+            buttonState.className
+          )}
+        >
+          🗣️ {buttonState.text}
+        </button>
+        {encodeError && (
+          <span className="text-xs text-red-400">{encodeError}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface InterceptDetailProps {
   intercept: PendingIntercept;
   onForward: () => void;
@@ -347,17 +466,16 @@ function InterceptDetail({ intercept, onForward, onForwardModified, onDrop }: In
         {activeTab === 'body' && (
           <>
             {isEditing ? (
-              <textarea
+              <BodyEditor
                 value={editedBody}
-                onChange={(e) => setEditedBody(e.target.value)}
-                className="w-full h-full min-h-[300px] bg-inspector-bg border border-inspector-border rounded-lg p-3 font-mono text-sm resize-none focus:outline-none focus:border-inspector-accent"
-                spellCheck={false}
+                onChange={setEditedBody}
               />
             ) : (
               <div className="bg-inspector-bg border border-inspector-border rounded-lg p-3">
                 <pre className="font-mono text-sm whitespace-pre-wrap break-all">
                   {formatContent(editedBody, displayMode)}
                 </pre>
+                <GlossopetraeDecodePanel text={editedBody} direction="decode" />
               </div>
             )}
           </>

@@ -10,6 +10,7 @@ import { DisplayModeToggle, formatContent } from '../shared/DisplayModeToggle';
 import { GenerateMockModal } from '../shared/GenerateMockModal';
 import { AnnotationPanel } from '../shared/AnnotationPanel';
 import { CreateVariantModal } from '../replay/CreateVariantModal';
+import { GlossopetraeDecodePanel } from '../shared/GlossopetraeDecodePanel';
 
 type Tab = 'request' | 'response' | 'parsed';
 type ViewMode = 'modified' | 'original' | 'diff';
@@ -341,6 +342,7 @@ function DetailPanel({ flow, tab, displayMode, viewMode }: DetailPanelProps) {
               <pre className="text-sm font-mono whitespace-pre-wrap break-all">
                 {formatContent(request.content, displayMode)}
               </pre>
+              <GlossopetraeDecodePanel text={request.content} direction="decode" />
             </div>
           </div>
         )}
@@ -445,6 +447,7 @@ function DetailPanel({ flow, tab, displayMode, viewMode }: DetailPanelProps) {
               <pre className="text-sm font-mono whitespace-pre-wrap break-all">
                 {formatContent(response.content, displayMode)}
               </pre>
+              <GlossopetraeDecodePanel text={response.content} direction="decode" />
             </div>
           </div>
         )}

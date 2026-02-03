@@ -4,6 +4,7 @@
 
 import { clsx } from 'clsx';
 import { LLMMessage, ContentBlock } from '../../types';
+import { GlossopetraeDecodePanel } from '../shared/GlossopetraeDecodePanel';
 
 interface MessageBubbleProps {
   message: LLMMessage;
@@ -12,12 +13,17 @@ interface MessageBubbleProps {
   variant?: 'default' | 'original' | 'modified';  // Styling variant for compare view
 }
 
-function renderContentBlock(block: ContentBlock, idx: number) {
+function renderContentBlock(block: ContentBlock, idx: number, showDecode: boolean = true) {
   switch (block.type) {
     case 'text':
       return (
-        <div key={idx} className="whitespace-pre-wrap break-all">
-          {block.text}
+        <div key={idx}>
+          <div className="whitespace-pre-wrap break-all">
+            {block.text}
+          </div>
+          {showDecode && block.text && (
+            <GlossopetraeDecodePanel text={block.text} direction="decode" />
+          )}
         </div>
       );
 
@@ -31,6 +37,9 @@ function renderContentBlock(block: ContentBlock, idx: number) {
           <div className="text-sm whitespace-pre-wrap break-all opacity-80">
             {block.thinking}
           </div>
+          {showDecode && block.thinking && (
+            <GlossopetraeDecodePanel text={block.thinking} direction="decode" />
+          )}
         </div>
       );
 
@@ -172,12 +181,17 @@ export function MessageBubble({ message, isModified, label, variant = 'default' 
         )}
       >
         {typeof message.content === 'string' ? (
-          <div className="whitespace-pre-wrap break-all text-sm">
-            {message.content}
+          <div className="text-sm">
+            <div className="whitespace-pre-wrap break-all">
+              {message.content}
+            </div>
+            {message.content && (
+              <GlossopetraeDecodePanel text={message.content} direction="decode" />
+            )}
           </div>
         ) : (
           <div className="text-sm">
-            {message.content.map((block, idx) => renderContentBlock(block, idx))}
+            {message.content.map((block, idx) => renderContentBlock(block, idx, true))}
           </div>
         )}
       </div>

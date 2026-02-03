@@ -2,8 +2,10 @@
  * Main App component
  */
 
+import { useEffect } from 'react';
 import { useAppStore } from './stores/appStore';
 import { useWebSocket } from './hooks/useWebSocket';
+import { initializeGlossopetrae, isGlossopetraeAvailable } from './utils/glossopetrae';
 import { Sidebar } from './components/layout/Sidebar';
 import { TrafficListView } from './components/traffic/TrafficListView';
 import { TrafficDetailView } from './components/traffic/TrafficDetailView';
@@ -74,6 +76,14 @@ function MainContent() {
 function App() {
   // Initialize WebSocket connection
   useWebSocket();
+
+  // Initialize Glossopetrae (optional conlang decoder)
+  const setGlossopetraeAvailable = useAppStore((state) => state.setGlossopetraeAvailable);
+  useEffect(() => {
+    initializeGlossopetrae().then((available) => {
+      setGlossopetraeAvailable(available);
+    });
+  }, [setGlossopetraeAvailable]);
 
   return (
     <div className="h-screen flex bg-inspector-bg text-inspector-text">
