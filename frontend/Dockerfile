@@ -5,6 +5,9 @@ ARG ENABLE_GLOSSOPETRAE=false
 ARG GLOSSOPETRAE_VERSION=main
 ARG GLOSSOPETRAE_REPO=https://github.com/plinylmao/GLOSSOPETRAE.git
 
+# Set Vite environment variable for Glossopetrae (available at build and runtime)
+ENV VITE_GLOSSOPETRAE_ENABLED=$ENABLE_GLOSSOPETRAE
+
 # Install git if Glossopetrae is enabled
 RUN if [ "$ENABLE_GLOSSOPETRAE" = "true" ]; then \
       apk add --no-cache git; \

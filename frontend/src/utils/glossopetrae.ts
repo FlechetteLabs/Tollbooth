@@ -46,16 +46,20 @@ export async function initializeGlossopetrae(): Promise<boolean> {
 
   initializationAttempted = true;
 
-  // Check environment variable first
+  // Only attempt to load if explicitly enabled via environment variable
+  // This prevents Vite from analyzing the import when Glossopetrae is not installed
   const envEnabled = import.meta.env.VITE_GLOSSOPETRAE_ENABLED;
-  if (envEnabled === 'false') {
-    console.log('[Glossopetrae] Disabled via environment variable');
+  if (envEnabled !== 'true') {
+    console.log('[Glossopetrae] Not enabled (VITE_GLOSSOPETRAE_ENABLED != true)');
     return false;
   }
 
   try {
-    // Dynamic import - will fail if Glossopetrae not installed
-    const module = await import('../lib/glossopetrae/skill/GlossopetraeSkill.js');
+    // Dynamic import - only reached when VITE_GLOSSOPETRAE_ENABLED=true
+    // At that point, the files should exist because they were installed during Docker build
+    // Using a variable path bypasses Vite's static import analysis
+    const modulePath = '../lib/glossopetrae/skill/GlossopetraeSkill.js';
+    const module = await import(/* @vite-ignore */ modulePath);
     GlossopetraeSkill = module.GlossopetraeSkill || module.default;
     glossopetraeAvailable = true;
     console.log('[Glossopetrae] Loaded successfully');
@@ -63,8 +67,7 @@ export async function initializeGlossopetrae(): Promise<boolean> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     initializationError = message;
-    console.log('[Glossopetrae] Not installed - decode features disabled');
-    console.debug('[Glossopetrae] Load error:', message);
+    console.error('[Glossopetrae] Failed to load despite being enabled:', message);
     return false;
   }
 }
