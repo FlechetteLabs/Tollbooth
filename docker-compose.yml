@@ -58,17 +58,19 @@ services:
       - ./tollbooth-data:/data
       #
       # Data structure:
-      #   /data/config/    - rules, settings, presets, templates, refusal-rules
-      #   /data/traffic/   - traffic flows with inline annotations (one file per flow)
-      #   /data/replay/    - replay variants
-      #   /data/store/     - stored responses/requests for mock rules
+      #   /data/config/        - rules, settings, presets, templates, refusal-rules
+      #   /data/traffic/       - traffic flows with inline annotations (one file per flow)
+      #   /data/conversations/ - LLM conversations (correlated from traffic)
+      #   /data/replay/        - replay variants
+      #   /data/store/         - stored responses/requests for mock rules
       #
       # Control which data categories are persisted with env vars:
-      #   TOLLBOOTH_PERSIST_TRAFFIC=false   - don't save traffic (default: true)
-      #   TOLLBOOTH_PERSIST_REPLAY=false    - don't save replay variants (default: true)
-      #   TOLLBOOTH_PERSIST_RULES=false     - don't save rules (default: true)
-      #   TOLLBOOTH_PERSIST_CONFIG=false    - don't save config files (default: true)
-      #   TOLLBOOTH_PERSIST_STORE=false     - don't save stored responses/requests (default: true)
+      #   TOLLBOOTH_PERSIST_TRAFFIC=false       - don't save traffic (default: true)
+      #   TOLLBOOTH_PERSIST_CONVERSATIONS=false - don't save conversations (default: true)
+      #   TOLLBOOTH_PERSIST_REPLAY=false        - don't save replay variants (default: true)
+      #   TOLLBOOTH_PERSIST_RULES=false         - don't save rules (default: true)
+      #   TOLLBOOTH_PERSIST_CONFIG=false        - don't save config files (default: true)
+      #   TOLLBOOTH_PERSIST_STORE=false         - don't save stored responses/requests (default: true)
     environment:
       - NODE_ENV=development
       - PROXY_WS_PORT=3001

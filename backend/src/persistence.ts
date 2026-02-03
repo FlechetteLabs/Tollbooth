@@ -14,6 +14,7 @@ const DATA_PATH = process.env.TOLLBOOTH_DATA_PATH || '/data';
 
 // Environment variable controls (all default to true if /data is mounted)
 const PERSIST_TRAFFIC = process.env.TOLLBOOTH_PERSIST_TRAFFIC !== 'false';
+const PERSIST_CONVERSATIONS = process.env.TOLLBOOTH_PERSIST_CONVERSATIONS !== 'false';
 const PERSIST_REPLAY = process.env.TOLLBOOTH_PERSIST_REPLAY !== 'false';
 const PERSIST_RULES = process.env.TOLLBOOTH_PERSIST_RULES !== 'false';
 const PERSIST_CONFIG = process.env.TOLLBOOTH_PERSIST_CONFIG !== 'false';
@@ -23,6 +24,7 @@ const PERSIST_STORE = process.env.TOLLBOOTH_PERSIST_STORE !== 'false';
 const DIRS = {
   config: path.join(DATA_PATH, 'config'),
   traffic: path.join(DATA_PATH, 'traffic'),
+  conversations: path.join(DATA_PATH, 'conversations'),
   replay: path.join(DATA_PATH, 'replay'),
   store: path.join(DATA_PATH, 'store'),
   storeResponses: path.join(DATA_PATH, 'store', 'responses'),
@@ -90,6 +92,7 @@ class PersistenceManager {
 
     console.log('[Persistence] Configuration:');
     console.log(`  - Traffic: ${PERSIST_TRAFFIC ? 'enabled' : 'disabled'}`);
+    console.log(`  - Conversations: ${PERSIST_CONVERSATIONS ? 'enabled' : 'disabled'}`);
     console.log(`  - Replay: ${PERSIST_REPLAY ? 'enabled' : 'disabled'}`);
     console.log(`  - Rules: ${PERSIST_RULES ? 'enabled' : 'disabled'}`);
     console.log(`  - Config: ${PERSIST_CONFIG ? 'enabled' : 'disabled'}`);
@@ -106,11 +109,12 @@ class PersistenceManager {
   /**
    * Check if a specific category is persisted
    */
-  isPersisted(category: 'traffic' | 'replay' | 'rules' | 'config' | 'store'): boolean {
+  isPersisted(category: 'traffic' | 'conversations' | 'replay' | 'rules' | 'config' | 'store'): boolean {
     if (!this.enabled) return false;
 
     switch (category) {
       case 'traffic': return PERSIST_TRAFFIC;
+      case 'conversations': return PERSIST_CONVERSATIONS;
       case 'replay': return PERSIST_REPLAY;
       case 'rules': return PERSIST_RULES;
       case 'config': return PERSIST_CONFIG;
@@ -201,6 +205,84 @@ class PersistenceManager {
     if (!this.isPersisted('traffic')) return;
 
     const filePath = this.getTrafficFilePath(flowId);
+    try {
+      await fs.unlink(filePath);
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+  }
+
+  // ============ Conversation Persistence ============
+
+  /**
+   * Get the file path for a conversation
+   */
+  getConversationFilePath(conversationId: string): string {
+    const sanitizedId = conversationId.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return path.join(DIRS.conversations, `${sanitizedId}.json`);
+  }
+
+  /**
+   * Save a conversation to disk
+   */
+  async saveConversation(conversationId: string, conversation: unknown): Promise<void> {
+    if (!this.isPersisted('conversations')) return;
+
+    const filePath = this.getConversationFilePath(conversationId);
+    await fs.writeFile(filePath, JSON.stringify(conversation, null, 2), 'utf-8');
+  }
+
+  /**
+   * Load a conversation from disk
+   */
+  async loadConversation(conversationId: string): Promise<unknown | null> {
+    if (!this.isPersisted('conversations')) return null;
+
+    const filePath = this.getConversationFilePath(conversationId);
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      return JSON.parse(content);
+    } catch (err: any) {
+      if (err.code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Load all conversations from disk
+   */
+  async loadAllConversations(): Promise<unknown[]> {
+    if (!this.isPersisted('conversations')) return [];
+
+    try {
+      const files = await fs.readdir(DIRS.conversations);
+      const jsonFiles = files.filter(f => f.endsWith('.json'));
+      const conversations: unknown[] = [];
+
+      for (const file of jsonFiles) {
+        try {
+          const content = await fs.readFile(path.join(DIRS.conversations, file), 'utf-8');
+          conversations.push(JSON.parse(content));
+        } catch (err) {
+          console.error(`[Persistence] Failed to load conversation ${file}:`, err);
+        }
+      }
+
+      console.log(`[Persistence] Loaded ${conversations.length} conversations`);
+      return conversations;
+    } catch (err: any) {
+      if (err.code === 'ENOENT') return [];
+      throw err;
+    }
+  }
+
+  /**
+   * Delete a conversation from disk
+   */
+  async deleteConversation(conversationId: string): Promise<void> {
+    if (!this.isPersisted('conversations')) return;
+
+    const filePath = this.getConversationFilePath(conversationId);
     try {
       await fs.unlink(filePath);
     } catch (err: any) {

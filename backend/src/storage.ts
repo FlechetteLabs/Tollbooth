@@ -50,6 +50,17 @@ class Storage {
       console.log(`[Storage] Loaded ${this.traffic.size} traffic flows from disk`);
     }
 
+    // Load conversations from disk if persistence is enabled
+    if (persistence.isPersisted('conversations')) {
+      const convs = await persistence.loadAllConversations() as Conversation[];
+      for (const conv of convs) {
+        if (conv.conversation_id) {
+          this.conversations.set(conv.conversation_id, conv);
+        }
+      }
+      console.log(`[Storage] Loaded ${this.conversations.size} conversations from disk`);
+    }
+
     // Load filter presets
     if (persistence.isPersisted('config')) {
       const presets = await persistence.loadConfigFile<FilterPreset[]>('presets', []);
@@ -332,6 +343,10 @@ class Storage {
 
   addConversation(conversation: Conversation): void {
     this.conversations.set(conversation.conversation_id, conversation);
+    // Persist to disk
+    persistence.saveConversation(conversation.conversation_id, conversation).catch(err => {
+      console.error(`[Storage] Failed to persist conversation ${conversation.conversation_id}:`, err);
+    });
   }
 
   getConversation(conversationId: string): Conversation | undefined {
@@ -341,7 +356,12 @@ class Storage {
   updateConversation(conversationId: string, updates: Partial<Conversation>): void {
     const existing = this.conversations.get(conversationId);
     if (existing) {
-      this.conversations.set(conversationId, { ...existing, ...updates });
+      const updated = { ...existing, ...updates };
+      this.conversations.set(conversationId, updated);
+      // Persist to disk
+      persistence.saveConversation(conversationId, updated).catch(err => {
+        console.error(`[Storage] Failed to persist conversation ${conversationId}:`, err);
+      });
     }
   }
 
@@ -354,6 +374,24 @@ class Storage {
     return Array.from(this.conversations.values()).find(
       c => (c as any).correlationHash === hash
     );
+  }
+
+  /**
+   * Load conversations from disk (called at startup)
+   */
+  async loadConversationsFromDisk(): Promise<void> {
+    try {
+      const conversations = await persistence.loadAllConversations();
+      for (const conv of conversations) {
+        const conversation = conv as Conversation;
+        if (conversation.conversation_id) {
+          this.conversations.set(conversation.conversation_id, conversation);
+        }
+      }
+      console.log(`[Storage] Loaded ${this.conversations.size} conversations from disk`);
+    } catch (err) {
+      console.error('[Storage] Failed to load conversations from disk:', err);
+    }
   }
 
   // ============ Intercept methods ============
