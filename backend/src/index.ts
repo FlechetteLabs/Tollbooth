@@ -30,6 +30,7 @@ import {
   processResponse,
   getOrCreateAccumulator,
   finalizeStream,
+  rebuildConversationsFromTraffic,
 } from './conversations';
 import { addToURLLog, getURLLog, exportToCSV, exportToJSON, getUniqueDomains, getUniqueMethods, getUniqueStatusCodes } from './url-log';
 import { interceptManager } from './intercept';
@@ -549,6 +550,28 @@ app.post('/api/conversations/export', (req, res) => {
 
     default:
       res.status(400).json({ error: 'Invalid format. Use json, markdown, or html' });
+  }
+});
+
+// Rebuild conversations from existing traffic
+app.post('/api/conversations/rebuild', async (req, res) => {
+  const { clearExisting = true } = req.body;
+
+  try {
+    console.log('[API] Starting conversation rebuild from traffic...');
+    const result = await rebuildConversationsFromTraffic({ clearExisting });
+
+    // Broadcast updated conversations to all frontend clients
+    const conversations = storage.getAllConversations();
+    broadcastToFrontend({
+      type: 'conversations_rebuilt',
+      data: { conversations, ...result },
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[API] Conversation rebuild failed:', err);
+    res.status(500).json({ error: 'Rebuild failed', details: String(err) });
   }
 });
 

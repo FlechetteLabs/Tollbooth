@@ -169,6 +169,13 @@ function handleMessage(message: WSMessage) {
         removeTraffic(flowId);
       }
       break;
+
+    case 'conversations_rebuilt':
+      const rebuildData = message.data as { conversations: Conversation[] };
+      if (rebuildData.conversations) {
+        storeRef?.setConversationsBulk(rebuildData.conversations);
+      }
+      break;
   }
 }
 

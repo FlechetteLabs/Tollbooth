@@ -12,9 +12,10 @@ import {
   StreamChunk,
   LLMMessage,
   ContentBlock,
+  TrafficFlow,
 } from './types';
 import { storage } from './storage';
-import { parseStreamChunk } from './parsers';
+import { parseStreamChunk, parseRequest, parseResponse } from './parsers';
 
 /**
  * Generate correlation hash from first user message + model
@@ -259,4 +260,77 @@ export function finalizeStream(flowId: string): ParsedLLMResponse | null {
   const response = accumulator.finalize();
   streamAccumulators.delete(flowId);
   return response;
+}
+
+/**
+ * Rebuild conversations from existing traffic flows
+ * This processes all LLM API traffic and correlates into conversations
+ */
+export async function rebuildConversationsFromTraffic(options?: {
+  clearExisting?: boolean;
+  onProgress?: (processed: number, total: number) => void;
+}): Promise<{ conversationsCreated: number; turnsCreated: number; flowsProcessed: number; errors: number }> {
+  const { clearExisting = true, onProgress } = options || {};
+
+  // Clear existing conversations if requested
+  if (clearExisting) {
+    storage.clearAllConversations();
+  }
+
+  // Get all traffic and filter to LLM API calls
+  const allTraffic = storage.getAllTraffic();
+  const llmTraffic = allTraffic.filter(flow => flow.is_llm_api && flow.request && flow.response);
+
+  // Sort by timestamp (oldest first for proper correlation)
+  llmTraffic.sort((a, b) => a.timestamp - b.timestamp);
+
+  console.log(`[Conversations] Rebuilding from ${llmTraffic.length} LLM traffic flows`);
+
+  let turnsCreated = 0;
+  let errors = 0;
+  const conversationIds = new Set<string>();
+
+  for (let i = 0; i < llmTraffic.length; i++) {
+    const flow = llmTraffic[i];
+
+    try {
+      // Parse the request
+      const parsedRequest = parseRequest(flow.request);
+      if (!parsedRequest) {
+        errors++;
+        continue;
+      }
+
+      // Process request to create/update conversation
+      const { conversation } = processRequest(flow.flow_id, flow.timestamp, parsedRequest);
+      conversationIds.add(conversation.conversation_id);
+      turnsCreated++;
+
+      // Parse and process response if available
+      if (flow.response) {
+        const parsedResponse = parseResponse(flow.request, flow.response);
+        if (parsedResponse) {
+          processResponse(flow.flow_id, parsedResponse);
+        }
+      }
+    } catch (err) {
+      console.error(`[Conversations] Error processing flow ${flow.flow_id}:`, err);
+      errors++;
+    }
+
+    // Report progress
+    if (onProgress && (i + 1) % 50 === 0) {
+      onProgress(i + 1, llmTraffic.length);
+    }
+  }
+
+  const result = {
+    conversationsCreated: conversationIds.size,
+    turnsCreated,
+    flowsProcessed: llmTraffic.length,
+    errors,
+  };
+
+  console.log(`[Conversations] Rebuild complete:`, result);
+  return result;
 }

@@ -377,6 +377,21 @@ class Storage {
   }
 
   /**
+   * Clear all conversations (used before rebuild)
+   */
+  clearAllConversations(): void {
+    const ids = Array.from(this.conversations.keys());
+    this.conversations.clear();
+    // Delete from disk
+    for (const id of ids) {
+      persistence.deleteConversation(id).catch(err => {
+        console.error(`[Storage] Failed to delete conversation ${id}:`, err);
+      });
+    }
+    console.log(`[Storage] Cleared ${ids.length} conversations`);
+  }
+
+  /**
    * Load conversations from disk (called at startup)
    */
   async loadConversationsFromDisk(): Promise<void> {

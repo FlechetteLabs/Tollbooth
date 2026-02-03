@@ -147,6 +147,8 @@ export function ConversationListView() {
   const [filters, setFilters] = useState<ConversationFilters>(defaultFilters);
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildResult, setRebuildResult] = useState<{ conversationsCreated: number; turnsCreated: number } | null>(null);
 
   // Get unique providers for filter dropdown
   const availableProviders = useMemo(() => {
@@ -217,6 +219,31 @@ export function ConversationListView() {
     }
   };
 
+  const handleRebuild = async () => {
+    if (!confirm('This will rebuild all conversations from existing traffic. Continue?')) return;
+
+    setRebuilding(true);
+    setRebuildResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/conversations/rebuild`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clearExisting: true }),
+      });
+
+      if (!res.ok) throw new Error('Rebuild failed');
+
+      const result = await res.json();
+      setRebuildResult(result);
+      // Conversations will be updated via WebSocket
+    } catch (err) {
+      console.error('Rebuild failed:', err);
+      alert('Failed to rebuild conversations');
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
   const clearFilters = () => setFilters(defaultFilters);
   const hasActiveFilters = filters.searchText || filters.provider !== 'all' ||
     filters.minTurns > 0 || filters.maxTurns > 0 ||
@@ -229,6 +256,16 @@ export function ConversationListView() {
           <p className="text-4xl mb-4">💬</p>
           <p>No conversations captured yet</p>
           <p className="text-sm mt-2">LLM API calls will be correlated into conversations</p>
+          <button
+            onClick={handleRebuild}
+            disabled={rebuilding}
+            className="mt-4 px-4 py-2 bg-inspector-accent text-white rounded hover:bg-inspector-accent/80 disabled:opacity-50"
+          >
+            {rebuilding ? 'Rebuilding...' : 'Rebuild from Traffic'}
+          </button>
+          <p className="text-xs mt-2 text-inspector-muted">
+            Reconstruct conversations from existing traffic data
+          </p>
         </div>
       </div>
     );
@@ -274,6 +311,16 @@ export function ConversationListView() {
             )}
           >
             Filters {hasActiveFilters && `(${filteredConversations.length})`}
+          </button>
+
+          {/* Rebuild button */}
+          <button
+            onClick={handleRebuild}
+            disabled={rebuilding}
+            className="px-3 py-1.5 rounded text-sm bg-inspector-surface border border-inspector-border hover:border-inspector-accent disabled:opacity-50"
+            title="Rebuild conversations from existing traffic"
+          >
+            {rebuilding ? 'Rebuilding...' : '🔄 Rebuild'}
           </button>
 
           {/* Export dropdown */}
@@ -365,6 +412,21 @@ export function ConversationListView() {
           </div>
         )}
       </div>
+
+      {/* Rebuild result notification */}
+      {rebuildResult && (
+        <div className="shrink-0 px-3 py-2 bg-green-900/30 text-sm text-green-400 border-b border-green-700 flex items-center justify-between">
+          <span>
+            Rebuilt {rebuildResult.conversationsCreated} conversations with {rebuildResult.turnsCreated} turns
+          </span>
+          <button
+            onClick={() => setRebuildResult(null)}
+            className="text-green-400 hover:text-white"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Results summary */}
       {hasActiveFilters && (
