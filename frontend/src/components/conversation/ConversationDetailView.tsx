@@ -8,8 +8,14 @@ import { useAppStore } from '../../stores/appStore';
 import { MessageBubble } from './MessageBubble';
 import { ConversationTurn, ContentBlock } from '../../types';
 
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
+
 function formatTime(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleTimeString();
+}
+
+function formatDate(timestamp: number): string {
+  return new Date(timestamp * 1000).toLocaleDateString();
 }
 
 interface TurnViewProps {
@@ -124,6 +130,31 @@ function TurnView({ turn, turnIndex }: TurnViewProps) {
 
 export function ConversationDetailView() {
   const { selectedConversationId, conversations, setSelectedConversationId } = useAppStore();
+  const [exporting, setExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  const handleExport = async (format: 'json' | 'markdown' | 'html') => {
+    if (!selectedConversationId) return;
+    setExporting(true);
+    setShowExportMenu(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/conversations/${selectedConversationId}/export?format=${format}`);
+      if (!res.ok) throw new Error('Export failed');
+
+      const blob = await res.blob();
+      const ext = format === 'markdown' ? 'md' : format;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `conversation-${selectedConversationId.slice(0, 8)}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (!selectedConversationId) {
     return (
@@ -156,6 +187,8 @@ export function ConversationDetailView() {
                 ? 'bg-green-600'
                 : conversation.provider === 'google'
                 ? 'bg-blue-600'
+                : conversation.provider === 'ollama'
+                ? 'bg-purple-600'
                 : 'bg-gray-600'
             )}
           >
@@ -163,19 +196,58 @@ export function ConversationDetailView() {
           </span>
           <span className="font-mono text-sm">{conversation.model}</span>
         </div>
-        <button
-          onClick={() => setSelectedConversationId(null)}
-          className="text-inspector-muted hover:text-inspector-text"
-        >
-          ✕
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Export dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              disabled={exporting}
+              className="px-3 py-1 rounded text-sm bg-inspector-surface border border-inspector-border hover:border-inspector-accent disabled:opacity-50"
+            >
+              {exporting ? 'Exporting...' : 'Export ▼'}
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-inspector-surface border border-inspector-border rounded shadow-lg z-10 min-w-[140px]">
+                <button
+                  onClick={() => handleExport('json')}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-inspector-accent/20"
+                >
+                  JSON
+                </button>
+                <button
+                  onClick={() => handleExport('markdown')}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-inspector-accent/20"
+                >
+                  Markdown
+                </button>
+                <button
+                  onClick={() => handleExport('html')}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-inspector-accent/20"
+                >
+                  HTML
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setSelectedConversationId(null)}
+            className="text-inspector-muted hover:text-inspector-text"
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {/* Info bar */}
       <div className="shrink-0 flex items-center gap-4 px-4 py-2 bg-inspector-surface text-sm text-inspector-muted border-b border-inspector-border">
         <span>{conversation.turns.length} turns</span>
         <span>{conversation.message_count} messages</span>
-        <span>Started: {formatTime(conversation.created_at)}</span>
+        <span>Started: {formatDate(conversation.created_at)} {formatTime(conversation.created_at)}</span>
+        {conversation.turns.length > 0 && conversation.turns[conversation.turns.length - 1].response?.usage && (
+          <span className="ml-auto">
+            Total tokens: {conversation.turns.reduce((sum, t) => sum + (t.response?.usage?.input_tokens || 0), 0)} in / {conversation.turns.reduce((sum, t) => sum + (t.response?.usage?.output_tokens || 0), 0)} out
+          </span>
+        )}
       </div>
 
       {/* Turns */}

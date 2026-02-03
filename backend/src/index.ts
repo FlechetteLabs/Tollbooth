@@ -40,7 +40,7 @@ import { settingsManager, Settings } from './settings';
 import { createLLMClient, ChatMessage, fetchModelsForProvider, STATIC_MODELS } from './llm-client';
 import { LLMProvider, ConfigurableLLMProvider, DEFAULT_BASE_URLS } from './settings';
 import { refusalManager } from './refusal';
-import { RefusalRule, PendingRefusal, Annotation, AnnotationTargetType, ReplayVariant, InlineAnnotation } from './types';
+import { RefusalRule, PendingRefusal, Annotation, AnnotationTargetType, ReplayVariant, InlineAnnotation, Conversation, ContentBlock, ConversationTurn } from './types';
 import { shortIdRegistry } from './short-id-registry';
 import { replayManager } from './replay';
 
@@ -69,6 +69,265 @@ app.use(express.json({ limit: '50mb' }));
 
 // Frontend WebSocket clients
 const frontendClients = new Set<WebSocket>();
+
+// ============ Conversation Export Helpers ============
+
+function contentBlockToText(block: ContentBlock): string {
+  switch (block.type) {
+    case 'text':
+      return block.text;
+    case 'thinking':
+      return `[Thinking]\n${block.thinking}`;
+    case 'tool_use':
+      return `[Tool Use: ${block.name}]\n${JSON.stringify(block.input, null, 2)}`;
+    case 'tool_result':
+      const content = typeof block.content === 'string' ? block.content : JSON.stringify(block.content, null, 2);
+      return `[Tool Result${block.is_error ? ' (Error)' : ''}]\n${content}`;
+    case 'image':
+      return '[Image]';
+    default:
+      return '[Unknown content]';
+  }
+}
+
+function turnToMarkdown(turn: ConversationTurn, turnIndex: number): string {
+  const lines: string[] = [];
+  const timestamp = new Date(turn.timestamp * 1000).toISOString();
+
+  lines.push(`### Turn ${turnIndex + 1}`);
+  lines.push(`*${timestamp}*`);
+  if (turn.response?.usage) {
+    lines.push(`*Tokens: ${turn.response.usage.input_tokens} in / ${turn.response.usage.output_tokens} out*`);
+  }
+  lines.push('');
+
+  // Request messages
+  for (const msg of turn.request.messages) {
+    lines.push(`**${msg.role.toUpperCase()}**`);
+    if (typeof msg.content === 'string') {
+      lines.push(msg.content);
+    } else {
+      for (const block of msg.content) {
+        lines.push(contentBlockToText(block));
+      }
+    }
+    lines.push('');
+  }
+
+  // Response
+  if (turn.response && turn.response.content.length > 0) {
+    lines.push('**ASSISTANT**');
+    if (turn.response.stop_reason) {
+      lines.push(`*Stop reason: ${turn.response.stop_reason}*`);
+    }
+    for (const block of turn.response.content) {
+      lines.push(contentBlockToText(block));
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function conversationToMarkdown(conversation: Conversation): string {
+  const lines: string[] = [];
+  const created = new Date(conversation.created_at * 1000).toISOString();
+
+  lines.push(`# Conversation`);
+  lines.push('');
+  lines.push(`- **Provider:** ${conversation.provider}`);
+  lines.push(`- **Model:** ${conversation.model}`);
+  lines.push(`- **Turns:** ${conversation.turns.length}`);
+  lines.push(`- **Messages:** ${conversation.message_count}`);
+  lines.push(`- **Created:** ${created}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  for (let i = 0; i < conversation.turns.length; i++) {
+    lines.push(turnToMarkdown(conversation.turns[i], i));
+    if (i < conversation.turns.length - 1) {
+      lines.push('---');
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function contentBlockToHtml(block: ContentBlock): string {
+  switch (block.type) {
+    case 'text':
+      return `<div class="text-content">${escapeHtml(block.text).replace(/\n/g, '<br>')}</div>`;
+    case 'thinking':
+      return `<div class="thinking-block"><div class="block-label">Thinking</div><div class="block-content">${escapeHtml(block.thinking).replace(/\n/g, '<br>')}</div></div>`;
+    case 'tool_use':
+      return `<div class="tool-use-block"><div class="block-label">Tool Use: ${escapeHtml(block.name)}</div><pre class="block-content">${escapeHtml(JSON.stringify(block.input, null, 2))}</pre></div>`;
+    case 'tool_result':
+      const content = typeof block.content === 'string' ? block.content : JSON.stringify(block.content, null, 2);
+      const errorClass = block.is_error ? ' error' : '';
+      return `<div class="tool-result-block${errorClass}"><div class="block-label">Tool Result${block.is_error ? ' (Error)' : ''}</div><pre class="block-content">${escapeHtml(content)}</pre></div>`;
+    case 'image':
+      if (block.source.data) {
+        return `<div class="image-block"><img src="data:${block.source.media_type};base64,${block.source.data}" alt="Embedded image"></div>`;
+      } else if (block.source.url) {
+        return `<div class="image-block"><img src="${escapeHtml(block.source.url)}" alt="URL image"></div>`;
+      }
+      return `<div class="image-block">[Image]</div>`;
+    default:
+      return `<div class="unknown-block">[Unknown content]</div>`;
+  }
+}
+
+function turnToHtml(turn: ConversationTurn, turnIndex: number): string {
+  const timestamp = new Date(turn.timestamp * 1000).toLocaleString();
+  let html = `<div class="turn">`;
+  html += `<div class="turn-header"><span class="turn-number">Turn ${turnIndex + 1}</span><span class="timestamp">${timestamp}</span>`;
+  if (turn.response?.usage) {
+    html += `<span class="tokens">${turn.response.usage.input_tokens} in / ${turn.response.usage.output_tokens} out</span>`;
+  }
+  if (turn.refusal?.detected) {
+    html += `<span class="refusal-badge${turn.refusal.was_modified ? ' modified' : ''}">${turn.refusal.was_modified ? 'Refusal Modified' : 'Refusal Detected'} (${(turn.refusal.confidence * 100).toFixed(0)}%)</span>`;
+  }
+  html += `</div>`;
+
+  // Request messages
+  for (const msg of turn.request.messages) {
+    html += `<div class="message ${msg.role}">`;
+    html += `<div class="role-label">${msg.role.toUpperCase()}</div>`;
+    html += `<div class="message-content">`;
+    if (typeof msg.content === 'string') {
+      html += `<div class="text-content">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>`;
+    } else {
+      for (const block of msg.content) {
+        html += contentBlockToHtml(block);
+      }
+    }
+    html += `</div></div>`;
+  }
+
+  // Response
+  if (turn.response && turn.response.content.length > 0) {
+    html += `<div class="response">`;
+    html += `<div class="role-label">ASSISTANT${turn.response.stop_reason ? ` (stop: ${turn.response.stop_reason})` : ''}</div>`;
+    html += `<div class="response-content">`;
+    for (const block of turn.response.content) {
+      html += contentBlockToHtml(block);
+    }
+    html += `</div></div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function getHtmlStyles(): string {
+  return `
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; margin: 0; padding: 20px; line-height: 1.6; }
+      .conversation { max-width: 1200px; margin: 0 auto; }
+      .header { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #2a2a4a; }
+      .header h1 { margin: 0 0 15px 0; color: #fff; }
+      .meta { display: flex; flex-wrap: wrap; gap: 15px; }
+      .meta-item { background: #1a1a2e; padding: 5px 12px; border-radius: 4px; font-size: 14px; }
+      .provider-badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; color: white; }
+      .provider-anthropic { background: #ea580c; }
+      .provider-openai { background: #16a34a; }
+      .provider-google { background: #2563eb; }
+      .provider-unknown { background: #6b7280; }
+      .turn { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 15px; border: 1px solid #2a2a4a; }
+      .turn-header { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; flex-wrap: wrap; }
+      .turn-number { font-weight: bold; color: #fff; }
+      .timestamp { color: #888; font-size: 13px; }
+      .tokens { color: #888; font-size: 13px; margin-left: auto; }
+      .refusal-badge { background: #ea580c; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; }
+      .refusal-badge.modified { background: #9333ea; }
+      .message { margin-bottom: 15px; }
+      .message.user { margin-left: 40px; }
+      .message.system { opacity: 0.8; }
+      .role-label { font-size: 12px; font-weight: bold; margin-bottom: 5px; }
+      .message.user .role-label { color: #60a5fa; text-align: right; }
+      .message.assistant .role-label, .response .role-label { color: #4ade80; }
+      .message.system .role-label { color: #9ca3af; }
+      .message-content, .response-content { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 15px; }
+      .message.user .message-content { background: rgba(37, 99, 235, 0.2); border-color: #1e40af; }
+      .response { margin-top: 15px; padding-top: 15px; border-top: 1px solid #2a2a4a; }
+      .response-content { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 15px; }
+      .text-content { white-space: pre-wrap; word-break: break-word; }
+      .thinking-block { background: rgba(147, 51, 234, 0.2); border: 1px solid #7c3aed; border-radius: 8px; padding: 12px; margin: 10px 0; }
+      .tool-use-block { background: rgba(37, 99, 235, 0.2); border: 1px solid #1e40af; border-radius: 8px; padding: 12px; margin: 10px 0; }
+      .tool-result-block { background: rgba(22, 163, 74, 0.2); border: 1px solid #15803d; border-radius: 8px; padding: 12px; margin: 10px 0; }
+      .tool-result-block.error { background: rgba(220, 38, 38, 0.2); border-color: #b91c1c; }
+      .block-label { font-size: 12px; font-weight: bold; color: #a78bfa; margin-bottom: 8px; }
+      .tool-use-block .block-label { color: #60a5fa; }
+      .tool-result-block .block-label { color: #4ade80; }
+      .tool-result-block.error .block-label { color: #f87171; }
+      .block-content { font-family: 'Monaco', 'Menlo', monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+      pre.block-content { margin: 0; background: transparent; }
+      .image-block img { max-width: 100%; max-height: 400px; border-radius: 4px; }
+      @media (max-width: 768px) { body { padding: 10px; } .message.user { margin-left: 20px; } }
+    </style>
+  `;
+}
+
+function conversationToHtml(conversation: Conversation): string {
+  const created = new Date(conversation.created_at * 1000).toLocaleString();
+  const providerClass = `provider-${conversation.provider}`;
+
+  let html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Conversation Export</title>${getHtmlStyles()}</head><body>`;
+  html += `<div class="conversation">`;
+  html += `<div class="header"><h1>Conversation</h1><div class="meta">`;
+  html += `<span class="provider-badge ${providerClass}">${conversation.provider}</span>`;
+  html += `<span class="meta-item"><strong>Model:</strong> ${escapeHtml(conversation.model)}</span>`;
+  html += `<span class="meta-item"><strong>Turns:</strong> ${conversation.turns.length}</span>`;
+  html += `<span class="meta-item"><strong>Messages:</strong> ${conversation.message_count}</span>`;
+  html += `<span class="meta-item"><strong>Created:</strong> ${created}</span>`;
+  html += `</div></div>`;
+
+  for (let i = 0; i < conversation.turns.length; i++) {
+    html += turnToHtml(conversation.turns[i], i);
+  }
+
+  html += `</div></body></html>`;
+  return html;
+}
+
+function conversationsToHtml(conversations: Conversation[]): string {
+  let html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Conversations Export</title>${getHtmlStyles()}</head><body>`;
+  html += `<div class="conversation">`;
+  html += `<div class="header"><h1>Conversations Export</h1><div class="meta">`;
+  html += `<span class="meta-item"><strong>Total:</strong> ${conversations.length} conversations</span>`;
+  html += `<span class="meta-item"><strong>Exported:</strong> ${new Date().toLocaleString()}</span>`;
+  html += `</div></div>`;
+
+  for (const conv of conversations) {
+    const created = new Date(conv.created_at * 1000).toLocaleString();
+    const providerClass = `provider-${conv.provider}`;
+    html += `<div class="header" style="margin-top: 30px;"><h2>Conversation</h2><div class="meta">`;
+    html += `<span class="provider-badge ${providerClass}">${conv.provider}</span>`;
+    html += `<span class="meta-item"><strong>Model:</strong> ${escapeHtml(conv.model)}</span>`;
+    html += `<span class="meta-item"><strong>Turns:</strong> ${conv.turns.length}</span>`;
+    html += `<span class="meta-item"><strong>Created:</strong> ${created}</span>`;
+    html += `</div></div>`;
+
+    for (let i = 0; i < conv.turns.length; i++) {
+      html += turnToHtml(conv.turns[i], i);
+    }
+  }
+
+  html += `</div></body></html>`;
+  return html;
+}
 
 // ============ REST API Routes ============
 
@@ -221,6 +480,76 @@ app.get('/api/conversations/:conversationId', (req, res) => {
     return res.status(404).json({ error: 'Conversation not found' });
   }
   res.json(conversation);
+});
+
+// Export single conversation
+app.get('/api/conversations/:conversationId/export', (req, res) => {
+  const conversation = storage.getConversation(req.params.conversationId);
+  if (!conversation) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  const format = (req.query.format as string) || 'json';
+
+  switch (format) {
+    case 'json':
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="conversation-${conversation.conversation_id}.json"`);
+      res.json(conversation);
+      break;
+
+    case 'markdown':
+      res.setHeader('Content-Type', 'text/markdown');
+      res.setHeader('Content-Disposition', `attachment; filename="conversation-${conversation.conversation_id}.md"`);
+      res.send(conversationToMarkdown(conversation));
+      break;
+
+    case 'html':
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Disposition', `attachment; filename="conversation-${conversation.conversation_id}.html"`);
+      res.send(conversationToHtml(conversation));
+      break;
+
+    default:
+      res.status(400).json({ error: 'Invalid format. Use json, markdown, or html' });
+  }
+});
+
+// Export multiple conversations
+app.post('/api/conversations/export', (req, res) => {
+  const { conversation_ids, format = 'json' } = req.body;
+
+  let conversations: Conversation[];
+  if (conversation_ids && Array.isArray(conversation_ids)) {
+    conversations = conversation_ids
+      .map((id: string) => storage.getConversation(id))
+      .filter((c): c is Conversation => c !== undefined);
+  } else {
+    conversations = storage.getAllConversations();
+  }
+
+  switch (format) {
+    case 'json':
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', 'attachment; filename="conversations.json"');
+      res.json({ conversations, total: conversations.length, exported_at: Date.now() });
+      break;
+
+    case 'markdown':
+      res.setHeader('Content-Type', 'text/markdown');
+      res.setHeader('Content-Disposition', 'attachment; filename="conversations.md"');
+      res.send(conversations.map(c => conversationToMarkdown(c)).join('\n\n---\n\n'));
+      break;
+
+    case 'html':
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Disposition', 'attachment; filename="conversations.html"');
+      res.send(conversationsToHtml(conversations));
+      break;
+
+    default:
+      res.status(400).json({ error: 'Invalid format. Use json, markdown, or html' });
+  }
 });
 
 // Get intercept mode

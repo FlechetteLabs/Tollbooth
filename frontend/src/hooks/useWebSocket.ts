@@ -10,7 +10,7 @@ import { useAppStore } from '../stores/appStore';
 import { TrafficFlow, Conversation, PendingIntercept, PendingRefusal, InterceptMode } from '../types';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:2002';
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:2001';
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 const RECONNECT_DELAY = 3000;
 
 interface WSMessage {
