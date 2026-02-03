@@ -169,6 +169,11 @@ export interface ConversationTurn {
   streaming: boolean;
   stream_chunks?: StreamChunk[];
   refusal?: RefusalMetadata;
+  // Original data before modifications (only set if modified)
+  original_request?: ParsedLLMRequest;
+  original_response?: ParsedLLMResponse;
+  request_modified?: boolean;
+  response_modified?: boolean;
 }
 
 export interface Conversation {

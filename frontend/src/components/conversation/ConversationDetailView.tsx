@@ -25,6 +25,13 @@ interface TurnViewProps {
 
 function TurnView({ turn, turnIndex }: TurnViewProps) {
   const [expanded, setExpanded] = useState(true);
+  const [showOriginal, setShowOriginal] = useState(false);
+
+  const hasModifications = turn.request_modified || turn.response_modified;
+
+  // Select which data to display based on toggle
+  const displayRequest = showOriginal && turn.original_request ? turn.original_request : turn.request;
+  const displayResponse = showOriginal && turn.original_response ? turn.original_response : turn.response;
 
   return (
     <div className="border-b border-inspector-border pb-4 mb-4">
@@ -41,6 +48,16 @@ function TurnView({ turn, turnIndex }: TurnViewProps) {
         {turn.streaming && !turn.response && (
           <span className="px-2 py-0.5 rounded text-xs bg-yellow-600 text-white animate-pulse">
             Streaming...
+          </span>
+        )}
+        {turn.request_modified && (
+          <span className="px-2 py-0.5 rounded text-xs bg-blue-600 text-white">
+            Request Modified
+          </span>
+        )}
+        {turn.response_modified && (
+          <span className="px-2 py-0.5 rounded text-xs bg-purple-600 text-white">
+            Response Modified
           </span>
         )}
         {turn.refusal?.detected && (
@@ -62,24 +79,53 @@ function TurnView({ turn, turnIndex }: TurnViewProps) {
 
       {expanded && (
         <div className="pl-6">
+          {/* Original/Modified toggle */}
+          {hasModifications && (
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-xs text-inspector-muted">View:</span>
+              <button
+                onClick={() => setShowOriginal(false)}
+                className={clsx(
+                  'px-2 py-1 text-xs rounded',
+                  !showOriginal
+                    ? 'bg-inspector-accent text-white'
+                    : 'bg-inspector-surface border border-inspector-border hover:border-inspector-accent'
+                )}
+              >
+                Modified (Sent)
+              </button>
+              <button
+                onClick={() => setShowOriginal(true)}
+                className={clsx(
+                  'px-2 py-1 text-xs rounded',
+                  showOriginal
+                    ? 'bg-inspector-accent text-white'
+                    : 'bg-inspector-surface border border-inspector-border hover:border-inspector-accent'
+                )}
+              >
+                Original
+              </button>
+            </div>
+          )}
+
           {/* Request messages */}
-          {turn.request.messages.map((msg, idx) => (
+          {displayRequest.messages.map((msg, idx) => (
             <MessageBubble key={`req-${idx}`} message={msg} />
           ))}
 
           {/* Response */}
-          {turn.response && turn.response.content.length > 0 && (
+          {displayResponse && displayResponse.content.length > 0 && (
             <div className="mt-4 pt-4 border-t border-inspector-border">
               <div className="text-xs font-semibold text-green-400 mb-2">
                 ASSISTANT RESPONSE
-                {turn.response.stop_reason && (
+                {displayResponse.stop_reason && (
                   <span className="ml-2 text-inspector-muted">
-                    (stop: {turn.response.stop_reason})
+                    (stop: {displayResponse.stop_reason})
                   </span>
                 )}
               </div>
               <div className="bg-inspector-surface border border-inspector-border rounded-lg p-3">
-                {turn.response.content.map((block: ContentBlock, idx: number) => {
+                {displayResponse.content.map((block: ContentBlock, idx: number) => {
                   if (block.type === 'text') {
                     return (
                       <div key={idx} className="whitespace-pre-wrap break-all text-sm">

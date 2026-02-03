@@ -65,7 +65,11 @@ function findMatchingConversation(request: ParsedLLMRequest): Conversation | nul
 export function processRequest(
   flowId: string,
   timestamp: number,
-  request: ParsedLLMRequest
+  request: ParsedLLMRequest,
+  options?: {
+    originalRequest?: ParsedLLMRequest;
+    requestModified?: boolean;
+  }
 ): { conversation: Conversation; turn: ConversationTurn } {
   // Try to find existing conversation
   let conversation = findMatchingConversation(request);
@@ -94,6 +98,12 @@ export function processRequest(
     streaming: request.stream || false,
   };
 
+  // Add original request if modified
+  if (options?.requestModified && options?.originalRequest) {
+    turn.original_request = options.originalRequest;
+    turn.request_modified = true;
+  }
+
   // Update conversation
   conversation.turns.push(turn);
   conversation.updated_at = timestamp;
@@ -109,7 +119,11 @@ export function processRequest(
  */
 export function processResponse(
   flowId: string,
-  response: ParsedLLMResponse
+  response: ParsedLLMResponse,
+  options?: {
+    originalResponse?: ParsedLLMResponse;
+    responseModified?: boolean;
+  }
 ): Conversation | null {
   const conversations = storage.getAllConversations();
 
@@ -117,6 +131,13 @@ export function processResponse(
     const turn = conv.turns.find(t => t.flow_id === flowId);
     if (turn) {
       turn.response = response;
+
+      // Add original response if modified
+      if (options?.responseModified && options?.originalResponse) {
+        turn.original_response = options.originalResponse;
+        turn.response_modified = true;
+      }
+
       conv.updated_at = Date.now();
       storage.updateConversation(conv.conversation_id, conv);
       return conv;
@@ -294,15 +315,24 @@ export async function rebuildConversationsFromTraffic(options?: {
     const flow = llmTraffic[i];
 
     try {
-      // Parse the request
+      // Parse the request (use the actual request that was sent)
       const parsedRequest = parseRequest(flow.request);
       if (!parsedRequest) {
         errors++;
         continue;
       }
 
+      // Check if request was modified - parse original if so
+      let originalRequest: ParsedLLMRequest | undefined;
+      if (flow.request_modified && flow.original_request) {
+        originalRequest = parseRequest(flow.original_request) || undefined;
+      }
+
       // Process request to create/update conversation
-      const { conversation } = processRequest(flow.flow_id, flow.timestamp, parsedRequest);
+      const { conversation } = processRequest(flow.flow_id, flow.timestamp, parsedRequest, {
+        originalRequest,
+        requestModified: flow.request_modified,
+      });
       conversationIds.add(conversation.conversation_id);
       turnsCreated++;
 
@@ -310,7 +340,16 @@ export async function rebuildConversationsFromTraffic(options?: {
       if (flow.response) {
         const parsedResponse = parseResponse(flow.request, flow.response);
         if (parsedResponse) {
-          processResponse(flow.flow_id, parsedResponse);
+          // Check if response was modified - parse original if so
+          let originalResponse: ParsedLLMResponse | undefined;
+          if (flow.response_modified && flow.original_response) {
+            originalResponse = parseResponse(flow.request, flow.original_response) || undefined;
+          }
+
+          processResponse(flow.flow_id, parsedResponse, {
+            originalResponse,
+            responseModified: flow.response_modified,
+          });
         }
       }
     } catch (err) {
