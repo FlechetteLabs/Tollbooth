@@ -184,6 +184,44 @@ export interface Conversation {
   provider: LLMProvider;
   turns: ConversationTurn[];
   message_count: number;
+
+  // Tree metadata for branching
+  parent_conversation_id?: string;       // Conversation this branched from
+  divergence_turn_index?: number;        // Turn number where branch diverged
+  branch_type?: 'retry' | 'replay' | 'natural';  // How branch was created
+  children_conversation_ids?: string[];  // Conversations that branched from this
+}
+
+// ============ Conversation Tree Types ============
+
+export interface ConversationTreeNode {
+  conversation_id: string;
+  turn_index: number;           // Which turn this message belongs to
+  message_index: number;        // Index within the full message history
+  role: 'user' | 'assistant';   // Who sent this message
+  message: string;              // Preview (first 100 chars)
+  full_message: string;         // Full content
+  thinking?: string;            // Thinking/reasoning content (if any)
+  timestamp: number;
+  is_modified: boolean;         // Has intercept/rule modifications
+  children: ConversationTreeNode[];
+
+  // Metadata
+  model: string;
+  provider: LLMProvider;
+  turn_id: string;
+  flow_id: string;
+  node_id: string;              // Unique ID for this node
+}
+
+export interface ConversationTree {
+  root_conversation_id: string;
+  root_message: string;          // First user prompt
+  nodes: ConversationTreeNode[];
+  total_conversations: number;   // Conversations in this tree
+  total_branches: number;        // Branch points in this tree
+  related_tree_count: number;    // Trees connected via replay links
+  total_tree_count: number;      // All conversation trees in system
 }
 
 // ============ URL Log Types ============

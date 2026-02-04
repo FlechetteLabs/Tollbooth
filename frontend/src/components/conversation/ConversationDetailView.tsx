@@ -6,9 +6,11 @@ import { useState, useEffect, useRef } from 'react';
 import { clsx } from 'clsx';
 import { useAppStore } from '../../stores/appStore';
 import { MessageBubble } from './MessageBubble';
+import { BranchExplorerPanel } from './BranchExplorerPanel';
 import { ConversationTurn, ContentBlock, LLMMessage, ParsedLLMResponse } from '../../types';
 
 type ViewMode = 'modified' | 'original' | 'compare';
+type TabMode = 'turns' | 'tree';
 
 /**
  * Compare two messages to check if they differ
@@ -414,6 +416,7 @@ export function ConversationDetailView() {
   const { selectedConversationId, conversations, setSelectedConversationId } = useAppStore();
   const [exporting, setExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabMode>('tree'); // Tree is now primary
 
   const handleExport = async (format: 'json' | 'markdown' | 'html') => {
     if (!selectedConversationId) return;
@@ -520,6 +523,42 @@ export function ConversationDetailView() {
         </div>
       </div>
 
+      {/* Tab bar */}
+      <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-inspector-surface border-b border-inspector-border">
+        <button
+          onClick={() => setActiveTab('tree')}
+          className={clsx(
+            'px-3 py-1 text-sm rounded transition-colors',
+            activeTab === 'tree'
+              ? 'bg-inspector-accent text-white'
+              : 'hover:bg-inspector-accent/20'
+          )}
+        >
+          Message Tree
+        </button>
+        <button
+          onClick={() => setActiveTab('turns')}
+          className={clsx(
+            'px-3 py-1 text-sm rounded transition-colors',
+            activeTab === 'turns'
+              ? 'bg-inspector-accent text-white'
+              : 'hover:bg-inspector-accent/20'
+          )}
+        >
+          API Turns
+        </button>
+        {conversation.children_conversation_ids && conversation.children_conversation_ids.length > 0 && (
+          <span className="ml-2 px-2 py-0.5 text-xs bg-cyan-600/30 text-cyan-400 rounded">
+            {conversation.children_conversation_ids.length} branch{conversation.children_conversation_ids.length !== 1 ? 'es' : ''}
+          </span>
+        )}
+        {conversation.parent_conversation_id && (
+          <span className="px-2 py-0.5 text-xs bg-purple-600/30 text-purple-400 rounded">
+            Branched from parent
+          </span>
+        )}
+      </div>
+
       {/* Info bar */}
       <div className="shrink-0 flex items-center gap-4 px-4 py-2 bg-inspector-surface text-sm text-inspector-muted border-b border-inspector-border">
         <span>{conversation.turns.length} turns</span>
@@ -532,12 +571,18 @@ export function ConversationDetailView() {
         )}
       </div>
 
-      {/* Turns */}
-      <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-4">
-        {conversation.turns.map((turn, idx) => (
-          <TurnView key={turn.turn_id} turn={turn} turnIndex={idx} />
-        ))}
-      </div>
+      {/* Content - Turns or Tree */}
+      {activeTab === 'turns' ? (
+        <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-4">
+          {conversation.turns.map((turn, idx) => (
+            <TurnView key={turn.turn_id} turn={turn} turnIndex={idx} />
+          ))}
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+          <BranchExplorerPanel conversationId={selectedConversationId} />
+        </div>
+      )}
     </div>
   );
 }

@@ -31,6 +31,11 @@ import {
   getOrCreateAccumulator,
   finalizeStream,
   rebuildConversationsFromTraffic,
+  detectBranches,
+  buildConversationTree,
+  getRelatedTrees,
+  getRootConversations,
+  getTotalTreeCount,
 } from './conversations';
 import { addToURLLog, getURLLog, exportToCSV, exportToJSON, getUniqueDomains, getUniqueMethods, getUniqueStatusCodes } from './url-log';
 import { interceptManager } from './intercept';
@@ -572,6 +577,87 @@ app.post('/api/conversations/rebuild', async (req, res) => {
   } catch (err) {
     console.error('[API] Conversation rebuild failed:', err);
     res.status(500).json({ error: 'Rebuild failed', details: String(err) });
+  }
+});
+
+// ============ Conversation Tree Endpoints ============
+
+// Get conversation tree for a specific conversation
+app.get('/api/conversations/:conversationId/tree', (req, res) => {
+  const { conversationId } = req.params;
+
+  try {
+    const tree = buildConversationTree(conversationId);
+    if (!tree) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    res.json(tree);
+  } catch (err) {
+    console.error('[API] Failed to build conversation tree:', err);
+    res.status(500).json({ error: 'Failed to build tree', details: String(err) });
+  }
+});
+
+// Get related trees (connected via replay links)
+app.get('/api/conversations/:conversationId/related', (req, res) => {
+  const { conversationId } = req.params;
+
+  try {
+    const related = getRelatedTrees(conversationId);
+    res.json({ trees: related, total: related.length });
+  } catch (err) {
+    console.error('[API] Failed to get related trees:', err);
+    res.status(500).json({ error: 'Failed to get related trees', details: String(err) });
+  }
+});
+
+// Rebuild conversation branches (re-detect all branching)
+app.post('/api/conversations/rebuild-branches', async (req, res) => {
+  try {
+    console.log('[API] Starting branch detection...');
+    const result = await detectBranches();
+
+    // Broadcast updated conversations to all frontend clients
+    const conversations = storage.getAllConversations();
+    broadcastToFrontend({
+      type: 'branches_rebuilt',
+      data: { conversations, ...result },
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[API] Branch detection failed:', err);
+    res.status(500).json({ error: 'Branch detection failed', details: String(err) });
+  }
+});
+
+// Get all root conversations (no parent)
+app.get('/api/conversations/roots', (req, res) => {
+  try {
+    const roots = getRootConversations();
+    res.json({ conversations: roots, total: roots.length });
+  } catch (err) {
+    console.error('[API] Failed to get root conversations:', err);
+    res.status(500).json({ error: 'Failed to get root conversations', details: String(err) });
+  }
+});
+
+// Get tree statistics
+app.get('/api/conversations/tree-stats', (req, res) => {
+  try {
+    const roots = getRootConversations();
+    const allConversations = storage.getAllConversations();
+    const withBranches = allConversations.filter(c => c.children_conversation_ids && c.children_conversation_ids.length > 0);
+
+    res.json({
+      total_trees: roots.length,
+      total_conversations: allConversations.length,
+      conversations_with_branches: withBranches.length,
+      branching_conversations: allConversations.filter(c => c.parent_conversation_id).length,
+    });
+  } catch (err) {
+    console.error('[API] Failed to get tree stats:', err);
+    res.status(500).json({ error: 'Failed to get tree stats', details: String(err) });
   }
 });
 

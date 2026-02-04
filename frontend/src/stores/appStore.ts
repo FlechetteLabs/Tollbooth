@@ -6,6 +6,7 @@ import { create } from 'zustand';
 import {
   TrafficFlow,
   Conversation,
+  ConversationTree,
   PendingIntercept,
   PendingRefusal,
   InterceptMode,
@@ -47,6 +48,14 @@ interface AppState {
   setConversationsBulk: (conversations: Conversation[]) => void;
   selectedConversationId: string | null;
   setSelectedConversationId: (id: string | null) => void;
+
+  // Conversation Tree
+  conversationTree: ConversationTree | null;
+  setConversationTree: (tree: ConversationTree | null) => void;
+  selectedTreeNodeId: string | null;  // Format: "conversationId:turnIndex"
+  setSelectedTreeNodeId: (id: string | null) => void;
+  comparisonNodeIds: [string, string] | null;  // Two node IDs to compare
+  setComparisonNodeIds: (ids: [string, string] | null) => void;
 
   // Intercept
   interceptMode: InterceptMode;
@@ -161,6 +170,14 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   selectedConversationId: null,
   setSelectedConversationId: (id) => set({ selectedConversationId: id }),
+
+  // Conversation Tree
+  conversationTree: null,
+  setConversationTree: (tree) => set({ conversationTree: tree }),
+  selectedTreeNodeId: null,
+  setSelectedTreeNodeId: (id) => set({ selectedTreeNodeId: id }),
+  comparisonNodeIds: null,
+  setComparisonNodeIds: (ids) => set({ comparisonNodeIds: ids }),
 
   // Intercept
   interceptMode: 'passthrough',
@@ -285,6 +302,9 @@ export const useAppStore = create<AppState>((set) => ({
     set({
       traffic: new Map(),
       conversations: new Map(),
+      conversationTree: null,
+      selectedTreeNodeId: null,
+      comparisonNodeIds: null,
       pendingIntercepts: new Map(),
       pendingRefusals: new Map(),
       urlLog: [],
