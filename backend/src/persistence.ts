@@ -38,6 +38,7 @@ const CONFIG_FILES = {
   presets: path.join(DIRS.config, 'presets.json'),
   templates: path.join(DIRS.config, 'templates.json'),
   refusalRules: path.join(DIRS.config, 'refusal-rules.json'),
+  messageFilters: path.join(DIRS.config, 'message-filters.json'),
 };
 
 // Synchronously check if /data is available at module load time

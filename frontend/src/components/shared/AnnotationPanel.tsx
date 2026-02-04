@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Annotation, AnnotationTargetType } from '../../types';
+import { Annotation, AnnotationTargetType, InlineAnnotation } from '../../types';
 import { TagInput } from './TagInput';
 
 interface AnnotationPanelProps {
   targetType: AnnotationTargetType;
   targetId: string;
+  /** For conversation/turn annotations */
+  conversationId?: string;
+  turnId?: string;
   className?: string;
   collapsible?: boolean;
   defaultCollapsed?: boolean;
@@ -15,11 +18,13 @@ const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
 export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
   targetType,
   targetId,
+  conversationId,
+  turnId,
   className = '',
   collapsible = true,
   defaultCollapsed = true,
 }) => {
-  const [annotation, setAnnotation] = useState<Annotation | null>(null);
+  const [annotation, setAnnotation] = useState<Annotation | InlineAnnotation | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,18 +36,38 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
   const [body, setBody] = useState('');
   const [tags, setTags] = useState<string[]>([]);
 
+  // Determine API paths based on target type
+  const isConversationTurn = targetType === 'conversation' && conversationId && turnId;
+  const isConversationLevel = targetType === 'conversation' && conversationId && !turnId;
+
   // Fetch annotation for target
   useEffect(() => {
     const fetchAnnotation = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/api/annotations/target/${targetType}/${targetId}`);
+        let url: string;
+        if (isConversationTurn) {
+          url = `${API_BASE}/api/conversations/${conversationId}/turns/${turnId}/annotation`;
+        } else if (isConversationLevel) {
+          url = `${API_BASE}/api/conversations/${conversationId}/annotation`;
+        } else {
+          url = `${API_BASE}/api/annotations/target/${targetType}/${targetId}`;
+        }
+
+        const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
-          setAnnotation(data);
-          setTitle(data.title);
-          setBody(data.body || '');
-          setTags(data.tags || []);
+          if (data) {
+            setAnnotation(data);
+            setTitle(data.title || '');
+            setBody(data.body || '');
+            setTags(data.tags || []);
+          } else {
+            setAnnotation(null);
+            setTitle('');
+            setBody('');
+            setTags([]);
+          }
         } else if (res.status === 404) {
           setAnnotation(null);
           setTitle('');
@@ -57,7 +82,7 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
     };
 
     fetchAnnotation();
-  }, [targetType, targetId]);
+  }, [targetType, targetId, conversationId, turnId, isConversationTurn, isConversationLevel]);
 
   // Fetch all tags for autocomplete
   useEffect(() => {
@@ -76,7 +101,6 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
   }, []);
 
   const handleSave = async () => {
-    // Require either title or tags
     const hasTitle = title.trim().length > 0;
     const hasTags = tags.length > 0;
     if (!hasTitle && !hasTags) {
@@ -85,9 +109,39 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
 
     setIsSaving(true);
     try {
-      if (annotation) {
-        // Update existing
-        const res = await fetch(`${API_BASE}/api/annotations/${annotation.id}`, {
+      if (isConversationTurn) {
+        // Save turn annotation
+        const res = await fetch(
+          `${API_BASE}/api/conversations/${conversationId}/turns/${turnId}/annotation`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, body, tags }),
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setAnnotation(data.annotation);
+          setIsEditing(false);
+        }
+      } else if (isConversationLevel) {
+        // Save conversation annotation
+        const res = await fetch(
+          `${API_BASE}/api/conversations/${conversationId}/annotation`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, body, tags }),
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setAnnotation(data.annotation);
+          setIsEditing(false);
+        }
+      } else if (annotation && 'id' in annotation) {
+        // Update existing traffic annotation
+        const res = await fetch(`${API_BASE}/api/annotations/${(annotation as Annotation).id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title, body, tags }),
@@ -98,7 +152,7 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
           setIsEditing(false);
         }
       } else {
-        // Create new
+        // Create new traffic annotation
         const res = await fetch(`${API_BASE}/api/annotations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -123,7 +177,6 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
     }
   };
 
-  // Determine if this is a quick tag (tags only) or full annotation
   const isQuickTag = tags.length > 0 && !title.trim() && !body.trim();
   const canSave = title.trim().length > 0 || tags.length > 0;
 
@@ -133,9 +186,20 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
     if (!confirm('Delete this annotation?')) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/annotations/${annotation.id}`, {
-        method: 'DELETE',
-      });
+      let url: string;
+      let method = 'DELETE';
+
+      if (isConversationTurn) {
+        url = `${API_BASE}/api/conversations/${conversationId}/turns/${turnId}/annotation`;
+      } else if (isConversationLevel) {
+        url = `${API_BASE}/api/conversations/${conversationId}/annotation`;
+      } else if ('id' in annotation) {
+        url = `${API_BASE}/api/annotations/${(annotation as Annotation).id}`;
+      } else {
+        return;
+      }
+
+      const res = await fetch(url, { method });
       if (res.ok) {
         setAnnotation(null);
         setTitle('');
@@ -150,7 +214,7 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
 
   const handleCancel = () => {
     if (annotation) {
-      setTitle(annotation.title);
+      setTitle(annotation.title || '');
       setBody(annotation.body || '');
       setTags(annotation.tags || []);
     } else {
@@ -161,7 +225,6 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
     setIsEditing(false);
   };
 
-  // Format hierarchical tag for display
   const formatTag = (tag: string) => {
     const parts = tag.split(':');
     if (parts.length > 1) {

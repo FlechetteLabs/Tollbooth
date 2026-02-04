@@ -92,6 +92,16 @@ export function TreeNode({
               *
             </span>
           )}
+          {node.has_annotation && (
+            <span className="text-blue-400" title="Has annotation">
+              A
+            </span>
+          )}
+          {node.tags && node.tags.length > 0 && (
+            <span className="text-cyan-400" title={`Tags: ${node.tags.join(', ')}`}>
+              T{node.tags.length}
+            </span>
+          )}
         </div>
       </div>
     </div>

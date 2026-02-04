@@ -2,6 +2,8 @@
  * Conversation Tree View - SVG-based vertical tree visualization
  * Fixed: Transform applied to wrapper div for proper pan/zoom
  * Feature: Set any node as view root to focus on subtree
+ * Feature: Branch navigation in detail modal
+ * Feature: Conversation starring
  */
 
 import { useState, useRef, useCallback, useMemo } from 'react';
@@ -9,6 +11,8 @@ import { clsx } from 'clsx';
 import { ConversationTree, ConversationTreeNode } from '../../types';
 import { TreeNode } from './TreeNode';
 import { NodeDetailModal } from './NodeDetailModal';
+import { StarButton } from './StarButton';
+import { AnnotationPanel } from '../shared/AnnotationPanel';
 
 interface ConversationTreeViewProps {
   tree: ConversationTree;
@@ -201,6 +205,29 @@ function getAncestorPath(nodes: ConversationTreeNode[], targetId: string): Conve
   return path;
 }
 
+/**
+ * Build a linear branch path through the tree, starting from root and
+ * passing through a specific node, then following the first child to a leaf.
+ */
+function buildLinearBranch(
+  rootNodes: ConversationTreeNode[],
+  targetNode: ConversationTreeNode,
+): ConversationTreeNode[] {
+  // Get ancestors (root to target node, exclusive of target)
+  const ancestors = getAncestorPath(rootNodes, targetNode.node_id);
+
+  // ancestors already includes targetNode as the last element
+  // Now extend from targetNode to a leaf by following first children
+  const path = [...ancestors];
+  let current = targetNode;
+  while (current.children.length > 0) {
+    current = current.children[0]; // Follow first branch by default
+    path.push(current);
+  }
+
+  return path;
+}
+
 export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationTreeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -211,6 +238,12 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Branch navigation state
+  const [branchPath, setBranchPath] = useState<ConversationTreeNode[] | null>(null);
+
+  // Starring state
+  const [starred, setStarred] = useState(false);
 
   // Compute visible tree based on view root
   const visibleTree = useMemo(() => {
@@ -246,7 +279,38 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
   const handleNodeClick = useCallback((node: ConversationTreeNode) => {
     setSelectedNodeId(node.node_id);
     setDetailNode(node);
-  }, []);
+
+    // Build full branch path for navigation
+    const path = buildLinearBranch(tree.nodes, node);
+    setBranchPath(path);
+  }, [tree.nodes]);
+
+  /**
+   * Handle branch selection at a fork point in the modal.
+   * Rebuilds the branch path by keeping everything up to the parent node,
+   * then following the selected child to a leaf.
+   */
+  const handleBranchSelect = useCallback((parentNodeId: string, childIndex: number) => {
+    if (!branchPath) return;
+
+    // Find the parent node in the current branch path
+    const parentIdx = branchPath.findIndex(n => n.node_id === parentNodeId);
+    if (parentIdx < 0) return;
+
+    const parentNode = branchPath[parentIdx];
+    if (childIndex < 0 || childIndex >= parentNode.children.length) return;
+
+    // Keep path up to and including parent, then follow the selected child
+    const newPath = branchPath.slice(0, parentIdx + 1);
+    let current = parentNode.children[childIndex];
+    newPath.push(current);
+    while (current.children.length > 0) {
+      current = current.children[0]; // Follow first branch from the new child
+      newPath.push(current);
+    }
+
+    setBranchPath(newPath);
+  }, [branchPath]);
 
   const handleSelectForComparison = useCallback(() => {
     if (detailNode) {
@@ -378,7 +442,12 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
     <div className="h-full flex flex-col">
       {/* Controls */}
       <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-inspector-border bg-inspector-surface">
-        <div className="text-sm text-inspector-muted">
+        <div className="flex items-center gap-3 text-sm text-inspector-muted">
+          <StarButton
+            conversationId={tree.root_conversation_id}
+            starred={starred}
+            onToggle={setStarred}
+          />
           {viewRootNodeId ? (
             <>
               {visibleNodeCount} of {totalNodeCount} messages (subtree view)
@@ -426,6 +495,17 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
             Reset
           </button>
         </div>
+      </div>
+
+      {/* Conversation-level annotation panel */}
+      <div className="shrink-0 px-4 py-1 border-b border-inspector-border bg-inspector-surface/50">
+        <AnnotationPanel
+          targetType="conversation"
+          targetId={tree.root_conversation_id}
+          conversationId={tree.root_conversation_id}
+          collapsible={true}
+          defaultCollapsed={true}
+        />
       </div>
 
       {/* Breadcrumb trail when viewing subtree */}
@@ -494,14 +574,19 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
       </div>
 
       {/* Node detail modal */}
-      {detailNode && (
+      {detailNode && branchPath && (
         <NodeDetailModal
           node={detailNode}
-          onClose={() => setDetailNode(null)}
+          onClose={() => {
+            setDetailNode(null);
+            setBranchPath(null);
+          }}
+          branchPath={branchPath}
           onSelectForComparison={handleSelectForComparison}
           isComparisonCandidate={comparisonNode === detailNode.node_id}
           onSetAsRoot={detailNode.children.length > 0 ? handleSetAsRoot : undefined}
           isCurrentViewRoot={viewRootNodeId === detailNode.node_id}
+          onBranchSelect={handleBranchSelect}
         />
       )}
     </div>

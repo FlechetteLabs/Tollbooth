@@ -18,6 +18,7 @@ import {
 } from './types';
 import { storage } from './storage';
 import { parseStreamChunk, parseRequest, parseResponse } from './parsers';
+import { applyMessageFilters, shouldSkipMessage } from './message-filter';
 
 /**
  * Generate correlation hash from first user message + model
@@ -381,14 +382,17 @@ export async function rebuildConversationsFromTraffic(options?: {
 /**
  * Extract text content from a message for comparison
  */
-function extractMessageText(message: LLMMessage): string {
+function extractMessageText(message: LLMMessage, applyFilters = false): string {
+  let text: string;
   if (typeof message.content === 'string') {
-    return message.content;
+    text = message.content;
+  } else {
+    text = message.content
+      .filter(b => b.type === 'text')
+      .map(b => (b as any).text)
+      .join('\n');
   }
-  return message.content
-    .filter(b => b.type === 'text')
-    .map(b => (b as any).text)
-    .join('\n');
+  return applyFilters ? applyMessageFilters(text) : text;
 }
 
 /**
@@ -645,9 +649,10 @@ interface ExtractedMessage {
   messageIndex: number;       // Index in the full message history
   introducedInTurn: number;   // Which turn first included this message
   turn: ConversationTurn;     // The turn that introduced this message
+  isSuggestion?: boolean;     // True if this is part of a suggestion mode pair
 }
 
-function extractAllMessages(conversation: Conversation): ExtractedMessage[] {
+function extractAllMessages(conversation: Conversation, applyFiltersFlag = false): ExtractedMessage[] {
   const messages: ExtractedMessage[] = [];
   const seenMessages = new Set<string>();
 
@@ -659,8 +664,14 @@ function extractAllMessages(conversation: Conversation): ExtractedMessage[] {
       const msg = turn.request.messages[msgIndex];
       if (msg.role === 'system') continue; // Skip system messages
 
-      const content = extractMessageText(msg);
+      const content = extractMessageText(msg, applyFiltersFlag);
       const thinking = extractMessageThinking(msg);
+
+      // Skip whitespace-only messages after filtering
+      if (applyFiltersFlag && shouldSkipMessage(content)) {
+        continue;
+      }
+
       const key = `${msg.role}:${msgIndex}:${content.slice(0, 200)}`;
 
       if (!seenMessages.has(key)) {
@@ -678,8 +689,11 @@ function extractAllMessages(conversation: Conversation): ExtractedMessage[] {
 
     // Process the response (the new assistant message from this turn)
     if (turn.response) {
-      const responseContent = extractAssistantMessage(turn.response);
-      if (responseContent) {
+      let responseContent = extractAssistantMessage(turn.response);
+      if (applyFiltersFlag) {
+        responseContent = applyMessageFilters(responseContent);
+      }
+      if (responseContent && !(applyFiltersFlag && shouldSkipMessage(responseContent))) {
         const responseThinking = extractThinkingContent(turn.response);
         const key = `assistant:response:${turnIndex}:${responseContent.slice(0, 200)}`;
         if (!seenMessages.has(key)) {
@@ -695,6 +709,32 @@ function extractAllMessages(conversation: Conversation): ExtractedMessage[] {
         }
       }
     }
+  }
+
+  // Structural suggestion mode detection:
+  // The [SUGGESTION MODE marker is a definitive signal from Claude Code - it only
+  // appears in side-channel suggestion requests. These turns often end up as the
+  // last turn in their conversation (because the correlation logic requires
+  // increasing message counts, and the post-rejection turn has the same count),
+  // so we can't rely on comparing with a "next turn". Instead, simply mark any
+  // turn containing [SUGGESTION MODE and its paired response as suggestions.
+  if (applyFiltersFlag) {
+    for (let i = 0; i < conversation.turns.length; i++) {
+      const userMsgs = messages.filter(m => m.introducedInTurn === i && m.role === 'user');
+      const hasSuggestionMode = userMsgs.some(m => m.content.includes('[SUGGESTION MODE'));
+
+      if (hasSuggestionMode) {
+        userMsgs.forEach(m => { m.isSuggestion = true; });
+        // Also mark the paired assistant response from this turn
+        const assistantMsg = messages.find(m => m.introducedInTurn === i && m.role === 'assistant');
+        if (assistantMsg) {
+          assistantMsg.isSuggestion = true;
+        }
+      }
+    }
+
+    // Filter out suggestion messages
+    return messages.filter(m => !m.isSuggestion);
   }
 
   return messages;
@@ -726,10 +766,10 @@ export function buildConversationTree(conversationId: string): ConversationTree 
   }
   collectChildren(root);
 
-  // Extract messages from all conversations
+  // Extract messages from all conversations (with filtering enabled for tree display)
   const conversationMessages = new Map<string, ExtractedMessage[]>();
   for (const conv of treeConversations) {
-    conversationMessages.set(conv.conversation_id, extractAllMessages(conv));
+    conversationMessages.set(conv.conversation_id, extractAllMessages(conv, true));
   }
 
   // Sort conversations by creation time (oldest first)
@@ -784,6 +824,7 @@ export function buildConversationTree(conversationId: string): ConversationTree 
         let parentChildren = currentChildren;
         for (let j = i; j < messages.length; j++) {
           const m = messages[j];
+          const turnAnnotation = m.turn.annotation;
           const node: ConversationTreeNode = {
             conversation_id: conv.conversation_id,
             turn_index: m.introducedInTurn,
@@ -800,6 +841,8 @@ export function buildConversationTree(conversationId: string): ConversationTree 
             flow_id: m.turn.flow_id,
             node_id: `trie:${nodeCounter++}`,
             children: [],
+            has_annotation: !!(turnAnnotation?.title || turnAnnotation?.body),
+            tags: m.turn.tags || turnAnnotation?.tags || undefined,
           };
           parentChildren.push(node);
           parentChildren = node.children;

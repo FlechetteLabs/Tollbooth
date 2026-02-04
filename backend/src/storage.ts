@@ -240,25 +240,99 @@ class Storage {
   }
 
   /**
-   * Get all unique tags from all traffic flows
+   * Get all unique tags from traffic flows, conversations, and turns
    */
   getAllTags(): string[] {
     const tagSet = new Set<string>();
-    for (const flow of this.traffic.values()) {
-      if (flow.tags) {
-        for (const tag of flow.tags) {
-          tagSet.add(tag);
-          // Also add parent tags for hierarchical tags
-          const parts = tag.split(':');
-          let current = '';
-          for (const part of parts) {
-            current = current ? `${current}:${part}` : part;
-            tagSet.add(current);
-          }
+
+    const addTagsWithHierarchy = (tags: string[]) => {
+      for (const tag of tags) {
+        tagSet.add(tag);
+        const parts = tag.split(':');
+        let current = '';
+        for (const part of parts) {
+          current = current ? `${current}:${part}` : part;
+          tagSet.add(current);
         }
       }
+    };
+
+    // Traffic tags
+    for (const flow of this.traffic.values()) {
+      if (flow.tags) addTagsWithHierarchy(flow.tags);
     }
+
+    // Conversation tags
+    for (const conv of this.conversations.values()) {
+      if (conv.tags) addTagsWithHierarchy(conv.tags);
+      // Turn tags
+      for (const turn of conv.turns) {
+        if (turn.tags) addTagsWithHierarchy(turn.tags);
+      }
+    }
+
     return Array.from(tagSet).sort();
+  }
+
+  // ============ Conversation Annotation methods ============
+
+  /**
+   * Set or update annotation for a conversation
+   */
+  setConversationAnnotation(conversationId: string, annotation: InlineAnnotation | null): void {
+    const conv = this.conversations.get(conversationId);
+    if (!conv) return;
+
+    if (annotation) {
+      conv.annotation = annotation;
+      conv.tags = annotation.tags;
+    } else {
+      delete conv.annotation;
+      delete conv.tags;
+    }
+
+    this.conversations.set(conversationId, conv);
+    persistence.saveConversation(conversationId, conv).catch(err => {
+      console.error(`[Storage] Failed to persist conversation ${conversationId}:`, err);
+    });
+  }
+
+  /**
+   * Set starred status for a conversation
+   */
+  setConversationStarred(conversationId: string, starred: boolean): void {
+    const conv = this.conversations.get(conversationId);
+    if (!conv) return;
+
+    conv.starred = starred;
+    this.conversations.set(conversationId, conv);
+    persistence.saveConversation(conversationId, conv).catch(err => {
+      console.error(`[Storage] Failed to persist conversation ${conversationId}:`, err);
+    });
+  }
+
+  /**
+   * Set or update annotation for a conversation turn
+   */
+  setTurnAnnotation(conversationId: string, turnId: string, annotation: InlineAnnotation | null): void {
+    const conv = this.conversations.get(conversationId);
+    if (!conv) return;
+
+    const turn = conv.turns.find(t => t.turn_id === turnId);
+    if (!turn) return;
+
+    if (annotation) {
+      turn.annotation = annotation;
+      turn.tags = annotation.tags;
+    } else {
+      delete turn.annotation;
+      delete turn.tags;
+    }
+
+    this.conversations.set(conversationId, conv);
+    persistence.saveConversation(conversationId, conv).catch(err => {
+      console.error(`[Storage] Failed to persist conversation ${conversationId}:`, err);
+    });
   }
 
   // ============ Filter Preset methods ============

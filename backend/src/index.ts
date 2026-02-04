@@ -49,6 +49,7 @@ import { refusalManager } from './refusal';
 import { RefusalRule, PendingRefusal, Annotation, AnnotationTargetType, ReplayVariant, InlineAnnotation, Conversation, ContentBlock, ConversationTurn } from './types';
 import { shortIdRegistry } from './short-id-registry';
 import { replayManager } from './replay';
+import { loadFilterConfig } from './message-filter';
 
 // Configuration
 const REST_PORT = parseInt(process.env.REST_PORT || '3000', 10);
@@ -1919,6 +1920,135 @@ app.delete('/api/annotations/:id', async (req, res) => {
   }
 });
 
+// ============ Conversation Annotation & Starring API Routes ============
+
+// Get conversation annotation
+app.get('/api/conversations/:id/annotation', (req, res) => {
+  const conv = storage.getConversation(req.params.id);
+  if (!conv) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+  res.json(conv.annotation || null);
+});
+
+// Set/update conversation annotation
+app.put('/api/conversations/:id/annotation', (req, res) => {
+  try {
+    const conv = storage.getConversation(req.params.id);
+    if (!conv) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const { title, body, tags } = req.body;
+    const now = Date.now();
+    const annotation: InlineAnnotation = {
+      title: title || '',
+      body: body || '',
+      tags: tags || [],
+      created_at: conv.annotation?.created_at || now,
+      updated_at: now,
+    };
+
+    storage.setConversationAnnotation(req.params.id, annotation);
+    res.json({ success: true, annotation });
+  } catch (err: any) {
+    console.error('Failed to update conversation annotation:', err);
+    res.status(500).json({ error: err.message || 'Failed to update annotation' });
+  }
+});
+
+// Delete conversation annotation
+app.delete('/api/conversations/:id/annotation', (req, res) => {
+  try {
+    const conv = storage.getConversation(req.params.id);
+    if (!conv) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    storage.setConversationAnnotation(req.params.id, null);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Failed to delete conversation annotation:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete annotation' });
+  }
+});
+
+// Set conversation starred status
+app.put('/api/conversations/:id/starred', (req, res) => {
+  try {
+    const conv = storage.getConversation(req.params.id);
+    if (!conv) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    storage.setConversationStarred(req.params.id, req.body.starred);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Failed to toggle star:', err);
+    res.status(500).json({ error: err.message || 'Failed to toggle star' });
+  }
+});
+
+// Get turn annotation
+app.get('/api/conversations/:id/turns/:turnId/annotation', (req, res) => {
+  const conv = storage.getConversation(req.params.id);
+  if (!conv) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+  const turn = conv.turns.find(t => t.turn_id === req.params.turnId);
+  if (!turn) {
+    return res.status(404).json({ error: 'Turn not found' });
+  }
+  res.json(turn.annotation || null);
+});
+
+// Set/update turn annotation
+app.put('/api/conversations/:id/turns/:turnId/annotation', (req, res) => {
+  try {
+    const conv = storage.getConversation(req.params.id);
+    if (!conv) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const { title, body, tags } = req.body;
+    const turn = conv.turns.find(t => t.turn_id === req.params.turnId);
+    if (!turn) {
+      return res.status(404).json({ error: 'Turn not found' });
+    }
+
+    const now = Date.now();
+    const annotation: InlineAnnotation = {
+      title: title || '',
+      body: body || '',
+      tags: tags || [],
+      created_at: turn.annotation?.created_at || now,
+      updated_at: now,
+    };
+
+    storage.setTurnAnnotation(req.params.id, req.params.turnId, annotation);
+    res.json({ success: true, annotation });
+  } catch (err: any) {
+    console.error('Failed to update turn annotation:', err);
+    res.status(500).json({ error: err.message || 'Failed to update annotation' });
+  }
+});
+
+// Delete turn annotation
+app.delete('/api/conversations/:id/turns/:turnId/annotation', (req, res) => {
+  try {
+    const conv = storage.getConversation(req.params.id);
+    if (!conv) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    storage.setTurnAnnotation(req.params.id, req.params.turnId, null);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Failed to delete turn annotation:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete annotation' });
+  }
+});
+
 // ============ Filter Presets API Routes ============
 
 // List all filter presets
@@ -2627,6 +2757,13 @@ refusalManager.on('alternate_generated', (data: { id: string; response: string }
   } catch (err) {
     console.error('[RefusalManager] Failed to initialize:', err);
     console.log('[RefusalManager] Refusal detection will be disabled');
+  }
+
+  try {
+    await loadFilterConfig();
+    console.log('[MessageFilter] Loaded filter config');
+  } catch (err) {
+    console.error('[MessageFilter] Failed to load filter config:', err);
   }
 })();
 

@@ -150,6 +150,9 @@ export interface ConversationTurn {
   original_response?: ParsedLLMResponse;
   request_modified?: boolean;
   response_modified?: boolean;
+  // Annotations
+  annotation?: InlineAnnotation;
+  tags?: string[];
 }
 
 export interface Conversation {
@@ -166,6 +169,11 @@ export interface Conversation {
   divergence_turn_index?: number;        // Turn number where branch diverged
   branch_type?: 'retry' | 'replay' | 'natural';  // How branch was created
   children_conversation_ids?: string[];  // Conversations that branched from this
+
+  // Annotations & starring
+  annotation?: InlineAnnotation;
+  tags?: string[];
+  starred?: boolean;
 }
 
 // ============ Conversation Tree Types ============
@@ -188,6 +196,10 @@ export interface ConversationTreeNode {
   turn_id: string;
   flow_id: string;
   node_id: string;              // Unique ID for this node
+
+  // Annotation indicators
+  has_annotation?: boolean;     // True if turn has annotation with title/body
+  tags?: string[];              // Tags from turn annotation
 }
 
 export interface ConversationTree {
