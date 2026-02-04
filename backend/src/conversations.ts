@@ -886,7 +886,10 @@ function findMergeBackLoops(branchPoint: ConversationTreeNode): Array<{
         // Exclude the merge node itself (it's on the main path)
         const divergentMessages = altMessages.slice(0, -1);
 
-        if (divergentMessages.length > 0) {
+        if (divergentMessages.length > 1) {
+          // Only collapse as a loop if >1 divergent message; a single-message
+          // branch is likely a cancelled or refused request and should stay
+          // visible as a real branch in the tree.
           loops.push({
             messages: divergentMessages.map(n => ({ role: n.role, content: n.full_message })),
             merge_point_id: mergeNode.node_id,

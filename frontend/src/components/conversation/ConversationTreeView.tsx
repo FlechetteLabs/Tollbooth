@@ -234,8 +234,7 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
   const [detailNode, setDetailNode] = useState<ConversationTreeNode | null>(null);
   const [comparisonNode, setComparisonNode] = useState<string | null>(null);
   const [viewRootNodeId, setViewRootNodeId] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [view, setView] = useState({ zoom: 1, panX: 0, panY: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
@@ -321,39 +320,35 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
   const handleSetAsRoot = useCallback(() => {
     if (detailNode) {
       setViewRootNodeId(detailNode.node_id);
-      // Reset pan/zoom when changing view root
-      setPan({ x: 0, y: 0 });
-      setZoom(1);
+      setView({ zoom: 1, panX: 0, panY: 0 });
     }
   }, [detailNode]);
 
   const handleResetToTrueRoot = useCallback(() => {
     setViewRootNodeId(null);
-    setPan({ x: 0, y: 0 });
-    setZoom(1);
+    setView({ zoom: 1, panX: 0, panY: 0 });
   }, []);
 
   const handleBreadcrumbClick = useCallback((nodeId: string) => {
-    // Navigate to an ancestor node in the breadcrumb
     setViewRootNodeId(nodeId);
-    setPan({ x: 0, y: 0 });
-    setZoom(1);
+    setView({ zoom: 1, panX: 0, panY: 0 });
   }, []);
 
   // Pan handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 0) {
       setIsDragging(true);
-      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      setDragStart({ x: e.clientX - view.panX, y: e.clientY - view.panY });
     }
-  }, [pan]);
+  }, [view.panX, view.panY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isDragging) {
-      setPan({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
-      });
+      setView(prev => ({
+        ...prev,
+        panX: e.clientX - dragStart.x,
+        panY: e.clientY - dragStart.y,
+      }));
     }
   }, [isDragging, dragStart]);
 
@@ -372,23 +367,19 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
-    setZoom(prevZoom => {
-      const newZoom = Math.min(Math.max(prevZoom * factor, 0.1), 3);
-      // Adjust pan so the content point under the cursor stays fixed
-      setPan(prevPan => ({
-        x: cx - (cx - prevPan.x) / prevZoom * newZoom,
-        y: cy - (cy - prevPan.y) / prevZoom * newZoom,
-      }));
-      return newZoom;
+    setView(prev => {
+      const newZoom = Math.min(Math.max(prev.zoom * factor, 0.1), 3);
+      return {
+        zoom: newZoom,
+        panX: cx - (cx - prev.panX) / prev.zoom * newZoom,
+        panY: cy - (cy - prev.panY) / prev.zoom * newZoom,
+      };
     });
   }, []);
 
-  const handleZoomIn = () => setZoom(z => Math.min(z * 1.2, 3));
-  const handleZoomOut = () => setZoom(z => Math.max(z * 0.8, 0.1));
-  const handleResetView = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  };
+  const handleZoomIn = () => setView(prev => ({ ...prev, zoom: Math.min(prev.zoom * 1.2, 3) }));
+  const handleZoomOut = () => setView(prev => ({ ...prev, zoom: Math.max(prev.zoom * 0.8, 0.1) }));
+  const handleResetView = () => setView({ zoom: 1, panX: 0, panY: 0 });
 
   // Render connection lines
   const renderConnections = (positioned: PositionedNode[]) => {
@@ -571,7 +562,7 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
             -
           </button>
           <span className="text-sm text-inspector-muted w-16 text-center">
-            {Math.round(zoom * 100)}%
+            {Math.round(view.zoom * 100)}%
           </span>
           <button
             onClick={handleZoomIn}
@@ -645,7 +636,7 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
       >
         <div
           style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
             transformOrigin: '0 0',
             width: contentWidth,
             height: contentHeight,
