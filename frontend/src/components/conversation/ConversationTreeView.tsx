@@ -361,11 +361,26 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
     setIsDragging(false);
   }, []);
 
-  // Zoom handlers
+  // Zoom handlers - zoom centered on cursor position
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(z => Math.min(Math.max(z * delta, 0.1), 3));
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+
+    // Cursor position relative to the container
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+
+    setZoom(prevZoom => {
+      const newZoom = Math.min(Math.max(prevZoom * factor, 0.1), 3);
+      // Adjust pan so the content point under the cursor stays fixed
+      setPan(prevPan => ({
+        x: cx - (cx - prevPan.x) / prevZoom * newZoom,
+        y: cy - (cy - prevPan.y) / prevZoom * newZoom,
+      }));
+      return newZoom;
+    });
   }, []);
 
   const handleZoomIn = () => setZoom(z => Math.min(z * 1.2, 3));
