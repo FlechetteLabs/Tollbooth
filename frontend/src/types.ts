@@ -210,13 +210,6 @@ export interface ConversationTreeNode {
     thinking?: string;
     timestamp: number;
   }>;
-
-  // Alternate paths that diverge from this node and reconverge with the main path
-  alternate_loops?: Array<{
-    messages: Array<{ role: string; content: string }>;
-    diverge_after_id: string;  // main-path node_id where loop departs (this node or ancestor)
-    merge_at_id: string;       // main-path node_id where loop rejoins
-  }>;
 }
 
 export interface ConversationTree {
@@ -227,6 +220,11 @@ export interface ConversationTree {
   total_branches: number;        // Branch points in this tree
   related_tree_count: number;    // Trees connected via replay links
   total_tree_count: number;      // All conversation trees in system
+  // Merge connectors: visual lines showing where alt branches reconverge with main path
+  merge_connectors?: Array<{
+    from_node_id: string;        // Last divergent node in alt branch
+    to_node_id: string;          // Node in main path where content matches again
+  }>;
 }
 
 export interface URLLogEntry {

@@ -832,150 +832,245 @@ function extractAllMessages(conversation: Conversation, applyFiltersFlag = false
 
 /**
  * Flatten a linear trie branch into an ordered array.
- * Follows the first child at each level (branches in the alt path are unusual
- * but possible; we just follow the linear spine).
+ * Follows the first child at each level.
  */
 function flattenLinearPath(node: ConversationTreeNode): ConversationTreeNode[] {
   const result: ConversationTreeNode[] = [];
   let current: ConversationTreeNode | undefined = node;
   while (current) {
     result.push(current);
-    current = current.children[0]; // follow first child
+    current = current.children[0];
   }
   return result;
 }
 
-/**
- * Detect branches that diverge then reconverge, and mark loops on
- * the main-path nodes where each loop departs.
- * Handles multiple diverge-reconverge cycles within a single branch pair.
- */
-function detectAndMarkMergePoints(nodes: ConversationTreeNode[]) {
-  for (const node of nodes) {
-    if (node.children.length > 1) {
-      processAlternateBranches(node);
-    }
-    // Recurse into remaining children
-    detectAndMarkMergePoints(node.children);
-  }
-}
-
-interface LoopSegment {
-  messages: Array<{ role: string; content: string }>;
-  divergeAfterId: string;   // main-path node where loop departs
-  mergeAtId: string;        // main-path node where loop rejoins
+interface MergeConnector {
+  from_node_id: string;  // Last divergent node in alt branch
+  to_node_id: string;    // Node in main path where content matches again
 }
 
 /**
- * Walk the alt path against the main path to find all diverge-reconverge segments.
- * Uses a greedy forward-matching algorithm: for each alt node, scan forward in the
- * main path for a content+role match. Non-matching alt nodes accumulate into
- * divergent segments. Each matched node ends a divergent segment (if any) and
- * advances the main pointer.
+ * Find merge connectors between an alt branch and the main path.
+ * Uses a two-pass approach:
+ *   1. Walk alt path forward-matching against main path to find all content matches
+ *   2. Find runs of 2+ consecutive matches (both indices consecutive) to identify
+ *      genuine reconvergence, avoiding false positives from common messages like "go on"
  *
- * If the alt path ends without reconverging, the trailing divergent portion
- * stays as a real tree branch.
+ * Returns connectors from the last divergent alt node to the first reconverged main node.
+ * Does NOT modify the tree — branches remain intact.
  */
-function findLoopSegments(
-  branchPoint: ConversationTreeNode,
+function findMergeConnectors(
   mainPath: ConversationTreeNode[],
   altPath: ConversationTreeNode[],
-): LoopSegment[] {
-  const loops: LoopSegment[] = [];
-  let mainIdx = 0;
-  let currentDivergent: ConversationTreeNode[] = [];
-  // Track the main-path node just before the current divergent segment started
-  let divergeAfterNode: ConversationTreeNode = branchPoint;
+): MergeConnector[] {
+  // Pass 1: find all forward-matching positions
+  interface MatchInfo { altIdx: number; mainIdx: number; }
+  const matches: MatchInfo[] = [];
+  let scanMainIdx = 0;
 
-  for (const altNode of altPath) {
-    // Scan forward in main path from current position for a content+role match
-    let matchIdx = -1;
-    for (let m = mainIdx; m < mainPath.length; m++) {
+  for (let a = 0; a < altPath.length; a++) {
+    const altNode = altPath[a];
+    for (let m = scanMainIdx; m < mainPath.length; m++) {
       if (mainPath[m].role === altNode.role &&
           mainPath[m].full_message === altNode.full_message) {
-        matchIdx = m;
+        matches.push({ altIdx: a, mainIdx: m });
+        scanMainIdx = m + 1;
+        break;
+      }
+    }
+  }
+
+  // Pass 2: find runs of 2+ consecutive matches and emit connectors
+  const connectors: MergeConnector[] = [];
+  let i = 0;
+
+  while (i < matches.length) {
+    // Find the run of consecutive matches starting at i
+    let runEnd = i;
+    while (
+      runEnd + 1 < matches.length &&
+      matches[runEnd + 1].altIdx === matches[runEnd].altIdx + 1 &&
+      matches[runEnd + 1].mainIdx === matches[runEnd].mainIdx + 1
+    ) {
+      runEnd++;
+    }
+
+    const runLength = runEnd - i + 1;
+    if (runLength >= 2) {
+      // Genuine reconvergence — connect last divergent alt node to first reconverged main node
+      const firstMatch = matches[i];
+      if (firstMatch.altIdx > 0) {
+        connectors.push({
+          from_node_id: altPath[firstMatch.altIdx - 1].node_id,
+          to_node_id: mainPath[firstMatch.mainIdx].node_id,
+        });
+      }
+    }
+
+    i = runEnd + 1;
+  }
+
+  return connectors;
+}
+
+/**
+ * Detect merge connectors across the entire tree.
+ * At each branch point, compares alt branches against the main path (first child chain)
+ * and collects connector pairs. Does NOT remove any branches.
+ */
+function detectMergeConnectors(nodes: ConversationTreeNode[]): MergeConnector[] {
+  const connectors: MergeConnector[] = [];
+
+  function walk(nodeList: ConversationTreeNode[]) {
+    for (const node of nodeList) {
+      if (node.children.length > 1) {
+        const mainPath = flattenLinearPath(node.children[0]);
+        for (let i = 1; i < node.children.length; i++) {
+          const altPath = flattenLinearPath(node.children[i]);
+          const branchConnectors = findMergeConnectors(mainPath, altPath);
+          connectors.push(...branchConnectors);
+        }
+      }
+      walk(node.children);
+    }
+  }
+
+  walk(nodes);
+  return connectors;
+}
+
+/**
+ * Find ranges of duplicate (reconverged) nodes in an alt branch by comparing
+ * against the main path. Uses the same forward-matching logic as findMergeConnectors.
+ * Returns ranges of alt path indices that are duplicates of main path content.
+ */
+interface DuplicateRange {
+  start: number;  // First duplicate node index in alt path
+  end: number;    // Last duplicate node index (inclusive)
+}
+
+function findDuplicateRanges(
+  altPath: ConversationTreeNode[],
+  mainPath: ConversationTreeNode[]
+): DuplicateRange[] {
+  // Forward-match alt path content against main path
+  interface MatchInfo { altIdx: number; mainIdx: number; }
+  const matches: MatchInfo[] = [];
+  let scanMainIdx = 0;
+
+  for (let a = 0; a < altPath.length; a++) {
+    for (let m = scanMainIdx; m < mainPath.length; m++) {
+      if (mainPath[m].role === altPath[a].role &&
+          mainPath[m].full_message === altPath[a].full_message) {
+        matches.push({ altIdx: a, mainIdx: m });
+        scanMainIdx = m + 1;
+        break;
+      }
+    }
+  }
+
+  // Find runs of 2+ consecutive matches (genuine reconvergence)
+  const ranges: DuplicateRange[] = [];
+  let i = 0;
+
+  while (i < matches.length) {
+    let runEnd = i;
+    while (
+      runEnd + 1 < matches.length &&
+      matches[runEnd + 1].altIdx === matches[runEnd].altIdx + 1 &&
+      matches[runEnd + 1].mainIdx === matches[runEnd].mainIdx + 1
+    ) {
+      runEnd++;
+    }
+
+    const runLength = runEnd - i + 1;
+    if (runLength >= 2) {
+      ranges.push({
+        start: matches[i].altIdx,
+        end: matches[runEnd].altIdx,
+      });
+    }
+
+    i = runEnd + 1;
+  }
+
+  return ranges;
+}
+
+/**
+ * Remove duplicate (reconverged) nodes from an alt branch by re-linking
+ * around them. After this, only unique divergent nodes remain in the chain.
+ */
+function removeDuplicateNodes(
+  altPath: ConversationTreeNode[],
+  duplicateRanges: DuplicateRange[]
+): void {
+  // Build set of duplicate indices for O(1) lookup
+  const duplicateIndices = new Set<number>();
+  for (const range of duplicateRanges) {
+    for (let idx = range.start; idx <= range.end; idx++) {
+      duplicateIndices.add(idx);
+    }
+  }
+
+  // Rebuild the chain by linking around duplicates
+  for (let i = 0; i < altPath.length; i++) {
+    if (duplicateIndices.has(i)) {
+      continue; // Skip duplicate nodes
+    }
+
+    const currentNode = altPath[i];
+
+    // Find next non-duplicate node
+    let nextNode: ConversationTreeNode | null = null;
+    for (let j = i + 1; j < altPath.length; j++) {
+      if (!duplicateIndices.has(j)) {
+        nextNode = altPath[j];
         break;
       }
     }
 
-    if (matchIdx >= 0) {
-      // Found a match — close any pending divergent segment
-      if (currentDivergent.length > 0) {
-        loops.push({
-          messages: currentDivergent.map(n => ({ role: n.role, content: n.full_message })),
-          divergeAfterId: divergeAfterNode.node_id,
-          mergeAtId: mainPath[matchIdx].node_id,
-        });
-        currentDivergent = [];
-      }
-      // Advance main pointer past this match
-      divergeAfterNode = mainPath[matchIdx];
-      mainIdx = matchIdx + 1;
-    } else {
-      // No match — accumulate as divergent
-      if (currentDivergent.length === 0) {
-        // Record where this divergent segment starts (the last matched main-path node)
-        divergeAfterNode = mainIdx > 0 ? mainPath[mainIdx - 1] : branchPoint;
-      }
-      currentDivergent.push(altNode);
-    }
+    // Re-link: current → next (skipping duplicates in between)
+    currentNode.children = nextNode ? [nextNode] : [];
   }
-
-  // Trailing divergent segment (alt path ends without reconverging) is NOT a loop —
-  // return null to signal the branch should stay as a real tree branch.
-  // But if we found at least one loop, return them (the trailing part is lost,
-  // which is acceptable since the reconverged portions are the important data).
-  // If there's a trailing divergence AND loops, we still want the loops.
-  // The branch removal will handle this: only remove the branch if there's no
-  // trailing divergence.
-  if (currentDivergent.length > 0 && loops.length === 0) {
-    return []; // Pure divergence, no reconvergence at all — keep as real branch
-  }
-
-  return loops;
 }
 
 /**
- * Process alternate branches at a branch point, finding loop segments and
- * attaching them to the main-path nodes where they depart.
+ * Apply gitflow-style merging across the entire tree.
+ * At each branch point, identifies duplicate (reconverged) nodes in alt branches
+ * and removes them, keeping only unique divergent nodes. Merge connectors
+ * (detected separately) show where alt branches reconnect to the main path.
  */
-function processAlternateBranches(branchPoint: ConversationTreeNode) {
-  const mainPath = flattenLinearPath(branchPoint.children[0]);
-  const branchesToRemove: number[] = [];
+function applyGitflowMerge(
+  trieRoot: ConversationTreeNode[],
+  mergeConnectors: MergeConnector[]
+): void {
+  if (mergeConnectors.length === 0) return;
 
-  for (let i = 1; i < branchPoint.children.length; i++) {
-    const altPath = flattenLinearPath(branchPoint.children[i]);
-    const loops = findLoopSegments(branchPoint, mainPath, altPath);
+  function processNode(node: ConversationTreeNode) {
+    if (node.children.length > 1) {
+      // Branch point: first child chain is the main path
+      const mainPath = flattenLinearPath(node.children[0]);
 
-    if (loops.length > 0) {
-      // Attach each loop to the main-path node where it departs
-      for (const loop of loops) {
-        // Find the departure node in the main path (or branch point)
-        let targetNode: ConversationTreeNode | undefined;
-        if (loop.divergeAfterId === branchPoint.node_id) {
-          targetNode = branchPoint;
-        } else {
-          targetNode = mainPath.find(n => n.node_id === loop.divergeAfterId);
-        }
+      // Process each alt branch
+      for (let i = 1; i < node.children.length; i++) {
+        const altPath = flattenLinearPath(node.children[i]);
+        const duplicateRanges = findDuplicateRanges(altPath, mainPath);
 
-        if (targetNode) {
-          if (!targetNode.alternate_loops) {
-            targetNode.alternate_loops = [];
-          }
-          targetNode.alternate_loops.push({
-            messages: loop.messages,
-            diverge_after_id: loop.divergeAfterId,
-            merge_at_id: loop.mergeAtId,
-          });
+        if (duplicateRanges.length > 0) {
+          removeDuplicateNodes(altPath, duplicateRanges);
         }
       }
-      branchesToRemove.push(i);
+    }
+
+    // Recurse into children
+    for (const child of node.children) {
+      processNode(child);
     }
   }
 
-  // Remove fully-merged branches (iterate in reverse to preserve indices)
-  for (let i = branchesToRemove.length - 1; i >= 0; i--) {
-    branchPoint.children.splice(branchesToRemove[i], 1);
+  for (const root of trieRoot) {
+    processNode(root);
   }
 }
 
@@ -1097,8 +1192,12 @@ export function buildConversationTree(conversationId: string): ConversationTree 
     }
   }
 
-  // Detect and mark merge-back loops in the trie
-  detectAndMarkMergePoints(trieRoot);
+  // Detect merge connectors (visual lines showing where branches reconverge)
+  const mergeConnectors = detectMergeConnectors(trieRoot);
+
+  // Remove duplicate (reconverged) nodes from alt branches, keeping only unique nodes.
+  // Merge connectors provide the visual connection back to the main path.
+  applyGitflowMerge(trieRoot, mergeConnectors);
 
   // Log trie result
   function logTrieShape(nodes: ConversationTreeNode[], depth: number) {
@@ -1166,6 +1265,7 @@ export function buildConversationTree(conversationId: string): ConversationTree 
     total_branches: branchPoints,
     related_tree_count: relatedTreeRoots.size,
     total_tree_count: rootConvs.length,
+    merge_connectors: mergeConnectors.length > 0 ? mergeConnectors : undefined,
   };
 }
 

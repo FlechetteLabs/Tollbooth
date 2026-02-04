@@ -421,62 +421,42 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
     return lines;
   };
 
-  // Render loop graphics for alternate paths (gitflow-style connectors)
-  const renderLoopGraphics = (pos: PositionedNode) => {
-    const loops = pos.node.alternate_loops;
-    if (!loops || loops.length === 0) return null;
+  // Render merge connectors (gitflow-style lines between reconverging branches)
+  const renderMergeConnectors = () => {
+    const connectors = tree.merge_connectors;
+    if (!connectors || connectors.length === 0) return null;
 
-    const loopElements: JSX.Element[] = [];
+    return connectors.map((conn, idx) => {
+      const fromPos = positionedNodeMap.get(conn.from_node_id);
+      const toPos = positionedNodeMap.get(conn.to_node_id);
+      if (!fromPos || !toPos) return null;
 
-    loops.forEach((loop, loopIdx) => {
-      const messageCount = loop.messages.length;
+      // Start: bottom-center of the "from" node (last divergent alt node)
+      const startX = fromPos.x + offsetX + fromPos.width / 2;
+      const startY = fromPos.y + offsetY + fromPos.height;
 
-      // Find the departure and merge positioned nodes
-      const mergePos = positionedNodeMap.get(loop.merge_at_id);
-      if (!mergePos) return; // Merge node not visible in current view
+      // End: left side of the "to" node (merge point on main path), vertically centered
+      const endX = toPos.x + offsetX;
+      const endY = toPos.y + offsetY + toPos.height / 2;
 
-      // Departure point: bottom-left of the departure node
-      const startX = pos.x + offsetX;
-      const startY = pos.y + offsetY + pos.height;
-
-      // Merge point: left side of the merge node (vertically centered)
-      const endX = mergePos.x + offsetX;
-      const endY = mergePos.y + offsetY + mergePos.height / 2;
-
-      // Offset to the left for the loop curve, stacking multiple loops
-      const curveOffsetX = -50 - loopIdx * 25;
-      const controlX = Math.min(startX, endX) + curveOffsetX;
+      // Control points for a smooth curve
       const midY = (startY + endY) / 2;
 
-      // Label position at the midpoint of the curve
-      const labelX = controlX - 45;
-      const labelY = midY - 12;
-
-      loopElements.push(
-        <g key={`loop-${pos.node.node_id}-${loopIdx}`}>
-          {/* Curved connector from departure to merge */}
+      return (
+        <g key={`merge-${idx}`}>
           <path
-            d={`M ${startX} ${startY} C ${controlX} ${startY}, ${controlX} ${endY}, ${endX} ${endY}`}
+            d={`M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`}
             fill="none"
             stroke="#eab308"
             strokeWidth="2"
-            strokeDasharray="4 2"
+            strokeDasharray="6 3"
+            opacity="0.7"
           />
-          {/* Arrowhead at merge point */}
-          <circle cx={endX} cy={endY} r="3" fill="#eab308" />
-          {/* Label */}
-          <foreignObject x={labelX} y={labelY} width={80} height={24}>
-            <div className="rounded bg-yellow-900/30 border border-yellow-600/30 px-1 text-center">
-              <span className="text-[10px] text-yellow-400 font-semibold">
-                {messageCount} alt msg{messageCount !== 1 ? 's' : ''}
-              </span>
-            </div>
-          </foreignObject>
+          {/* Arrowhead dot at merge point */}
+          <circle cx={endX} cy={endY} r="4" fill="#eab308" opacity="0.7" />
         </g>
       );
     });
-
-    return loopElements;
   };
 
   // Render nodes
@@ -505,8 +485,6 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
               />
             </div>
           </foreignObject>
-          {/* Loop graphics for alternate paths */}
-          {renderLoopGraphics(pos)}
           {renderNodes(pos.children, false)}
         </g>
       );
@@ -641,6 +619,8 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
             <g>
               {/* Connection lines */}
               {renderConnections(positionedTree)}
+              {/* Merge connectors (gitflow-style reconvergence lines) */}
+              {renderMergeConnectors()}
               {/* Nodes */}
               {renderNodes(positionedTree)}
             </g>

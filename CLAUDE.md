@@ -48,6 +48,8 @@ docker compose up              # Start all services
 ./setup-certs.sh               # First-time certificate generation
 ```
 
+Don't run npx or npm directly, always run docker compose build, or run npm/npx inside a docker container
+
 ## Project Structure
 
 ```

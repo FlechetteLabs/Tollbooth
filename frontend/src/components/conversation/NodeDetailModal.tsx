@@ -224,72 +224,6 @@ function LikelySuggestionToggle({
 }
 
 /**
- * Display for an alternate loop (merge-back path)
- */
-function AlternateLoopDisplay({
-  loop,
-}: {
-  loop: { messages: Array<{ role: string; content: string }>; diverge_after_id: string; merge_at_id: string };
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const msgCount = loop.messages.length;
-
-  if (!expanded) {
-    return (
-      <div className="rounded-lg border border-yellow-600/20 bg-yellow-900/5 px-4 py-2 transition-all">
-        <button
-          onClick={() => setExpanded(true)}
-          className="flex items-center gap-2 text-xs text-yellow-500 hover:text-yellow-400 transition-colors w-full"
-        >
-          <span className="text-sm">{'\u27F2'}</span>
-          <span className="font-semibold">Alternate path</span>
-          <span className="text-inspector-muted font-normal">
-            ({msgCount} message{msgCount !== 1 ? 's' : ''}) - click to expand
-          </span>
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-lg border border-yellow-600/20 bg-yellow-900/5 p-4 transition-all">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-yellow-400">{'\u27F2'}</span>
-          <span className="px-2 py-0.5 rounded text-xs font-bold text-white bg-yellow-600">
-            ALTERNATE PATH
-          </span>
-          <span className="text-xs text-inspector-muted">
-            {msgCount} message{msgCount !== 1 ? 's' : ''}
-          </span>
-        </div>
-        <button
-          onClick={() => setExpanded(false)}
-          className="text-xs text-yellow-500 hover:text-yellow-400"
-        >
-          collapse
-        </button>
-      </div>
-      <div className="border-l-4 border-yellow-600/30 pl-3 space-y-2">
-        {loop.messages.map((msg, mIdx) => (
-          <div key={mIdx} className="text-sm">
-            <span className={clsx(
-              'text-xs font-bold mr-2',
-              msg.role === 'user' ? 'text-blue-400' : 'text-green-400'
-            )}>
-              {msg.role === 'user' ? 'USER' : 'ASSISTANT'}
-            </span>
-            <pre className="inline whitespace-pre-wrap break-words text-inspector-muted">
-              {msg.content.length > 300 ? msg.content.slice(0, 300) + '...' : msg.content}
-            </pre>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
  * Branch selector shown at fork points
  */
 function BranchSelector({
@@ -431,15 +365,6 @@ export function NodeDetailModal({
                 <div className="space-y-2 mt-2">
                   {msgNode.likely_suggestions.map((suggestion, sIdx) => (
                     <LikelySuggestionToggle key={sIdx} suggestion={suggestion} />
-                  ))}
-                </div>
-              )}
-
-              {/* Alternate loops (merge-back paths) */}
-              {msgNode.alternate_loops && msgNode.alternate_loops.length > 0 && (
-                <div className="space-y-2 mt-2">
-                  {msgNode.alternate_loops.map((loop, loopIdx) => (
-                    <AlternateLoopDisplay key={loopIdx} loop={loop} />
                   ))}
                 </div>
               )}

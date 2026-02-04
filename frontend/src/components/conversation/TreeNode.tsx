@@ -80,14 +80,6 @@ export function TreeNode({
         {node.message || '(empty)'}
       </div>
 
-      {/* Alternate loop indicator */}
-      {node.alternate_loops && node.alternate_loops.length > 0 && (
-        <div className="mt-2 text-xs text-yellow-400 flex items-center gap-1">
-          <span>{'\u27F2'}</span>
-          <span>{node.alternate_loops.length} alt path{node.alternate_loops.length !== 1 ? 's' : ''}</span>
-        </div>
-      )}
-
       {/* Likely suggestions indicator */}
       {node.likely_suggestions && node.likely_suggestions.length > 0 && (
         <div className="mt-1 text-xs text-yellow-500 flex items-center gap-1">
