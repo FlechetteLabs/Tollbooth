@@ -679,6 +679,7 @@ interface ExtractedMessage {
   messageIndex: number;       // Index in the full message history
   introducedInTurn: number;   // Which turn first included this message
   turn: ConversationTurn;     // The turn that introduced this message
+  isModified?: boolean;       // True if this specific message content was changed by intercept/rule
   isSuggestion?: boolean;     // True if this is part of a suggestion mode pair
   isLikelySuggestion?: boolean; // True if short assistant msg following another assistant msg
   likelySuggestions?: ExtractedMessage[]; // Short consecutive assistant messages attached to this node
@@ -708,6 +709,19 @@ function extractAllMessages(conversation: Conversation, applyFiltersFlag = false
 
       if (!seenMessages.has(key)) {
         seenMessages.add(key);
+
+        // Check if this specific message was modified by comparing with original
+        let isModified = false;
+        if (turn.request_modified && turn.original_request) {
+          const originalMsg = turn.original_request.messages[msgIndex];
+          if (!originalMsg) {
+            isModified = true; // Message was added (doesn't exist in original)
+          } else {
+            const originalContent = extractMessageText(originalMsg, applyFiltersFlag);
+            isModified = content !== originalContent;
+          }
+        }
+
         messages.push({
           role: msg.role as 'user' | 'assistant',
           content,
@@ -715,6 +729,7 @@ function extractAllMessages(conversation: Conversation, applyFiltersFlag = false
           messageIndex: messages.length,
           introducedInTurn: turnIndex,
           turn,
+          isModified,
         });
       }
     }
@@ -730,6 +745,17 @@ function extractAllMessages(conversation: Conversation, applyFiltersFlag = false
         const key = `assistant:response:${turnIndex}:${responseContent.slice(0, 200)}`;
         if (!seenMessages.has(key)) {
           seenMessages.add(key);
+
+          // Check if response content was modified
+          let isModified = false;
+          if (turn.response_modified && turn.original_response) {
+            let originalContent = extractAssistantMessage(turn.original_response);
+            if (applyFiltersFlag) {
+              originalContent = applyMessageFilters(originalContent);
+            }
+            isModified = responseContent !== originalContent;
+          }
+
           messages.push({
             role: 'assistant',
             content: responseContent,
@@ -737,6 +763,7 @@ function extractAllMessages(conversation: Conversation, applyFiltersFlag = false
             messageIndex: messages.length,
             introducedInTurn: turnIndex,
             turn,
+            isModified,
           });
         }
       }
@@ -1004,7 +1031,7 @@ export function buildConversationTree(conversationId: string): ConversationTree 
             full_message: m.content,
             thinking: m.thinking || undefined,
             timestamp: m.turn.timestamp,
-            is_modified: m.turn.request_modified || m.turn.response_modified || false,
+            is_modified: m.isModified || false,
             model: conv.model,
             provider: conv.provider,
             turn_id: m.turn.turn_id,
