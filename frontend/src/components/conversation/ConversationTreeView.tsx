@@ -268,6 +268,15 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
   const totalNodeCount = countNodes(tree.nodes);
   const visibleNodeCount = countNodes(visibleTree);
 
+  // Build lookup from node_id to positioned node for loop rendering
+  const positionedNodeMap = useMemo(() => {
+    const map = new Map<string, PositionedNode>();
+    for (const pn of allNodes) {
+      map.set(pn.node.node_id, pn);
+    }
+    return map;
+  }, [allNodes]);
+
   // Add padding
   const padding = 60;
   const contentWidth = bounds.maxX - bounds.minX + padding * 2;
@@ -412,77 +421,59 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
     return lines;
   };
 
-  // Render loop graphics for alternate paths
+  // Render loop graphics for alternate paths (gitflow-style connectors)
   const renderLoopGraphics = (pos: PositionedNode) => {
     const loops = pos.node.alternate_loops;
     if (!loops || loops.length === 0) return null;
 
-    const nodeLeftX = pos.x + offsetX;
-    const nodeCenterY = pos.y + offsetY + pos.height / 2;
     const loopElements: JSX.Element[] = [];
 
     loops.forEach((loop, loopIdx) => {
       const messageCount = loop.messages.length;
-      const loopOffsetX = -40 - loopIdx * 30; // Stack loops to the left
 
-      if (messageCount <= 5) {
-        // Small loop: curved side handle
-        const startX = nodeLeftX;
-        const startY = nodeCenterY - 10;
-        const endX = nodeLeftX;
-        const endY = nodeCenterY + 10;
-        const controlX = nodeLeftX + loopOffsetX;
-        const controlY = nodeCenterY;
+      // Find the departure and merge positioned nodes
+      const mergePos = positionedNodeMap.get(loop.merge_at_id);
+      if (!mergePos) return; // Merge node not visible in current view
 
-        loopElements.push(
-          <g key={`loop-${pos.node.node_id}-${loopIdx}`}>
-            <path
-              d={`M ${startX} ${startY} Q ${controlX} ${controlY}, ${endX} ${endY}`}
-              fill="none"
-              stroke="#eab308"
-              strokeWidth="2"
-              strokeDasharray="4 2"
-            />
-            <circle cx={controlX + 5} cy={controlY} r="3" fill="#eab308" />
-            <text
-              x={controlX - 5}
-              y={controlY - 8}
-              textAnchor="end"
-              className="text-[10px]"
-              fill="#eab308"
-            >
-              {messageCount} alt
-            </text>
-          </g>
-        );
-      } else {
-        // Large loop: collapsed node label
-        const labelX = nodeLeftX + loopOffsetX - 40;
-        const labelY = nodeCenterY - 20;
-        const labelW = 80;
-        const labelH = 40;
+      // Departure point: bottom-left of the departure node
+      const startX = pos.x + offsetX;
+      const startY = pos.y + offsetY + pos.height;
 
-        loopElements.push(
-          <g key={`loop-${pos.node.node_id}-${loopIdx}`}>
-            {/* Connector line from node to label */}
-            <line
-              x1={nodeLeftX}
-              y1={nodeCenterY}
-              x2={labelX + labelW}
-              y2={labelY + labelH / 2}
-              stroke="#eab308"
-              strokeWidth="1.5"
-              strokeDasharray="4 2"
-            />
-            <foreignObject x={labelX} y={labelY} width={labelW} height={labelH}>
-              <div className="rounded bg-yellow-900/20 border border-yellow-600/30 p-1 text-center h-full flex flex-col items-center justify-center">
-                <div className="text-[10px] text-yellow-400 font-semibold">{messageCount} msgs</div>
-                <div className="text-[9px] text-yellow-500/60">alternate</div>
-              </div>
-            </foreignObject>
-          </g>
-        );
-      }
+      // Merge point: left side of the merge node (vertically centered)
+      const endX = mergePos.x + offsetX;
+      const endY = mergePos.y + offsetY + mergePos.height / 2;
+
+      // Offset to the left for the loop curve, stacking multiple loops
+      const curveOffsetX = -50 - loopIdx * 25;
+      const controlX = Math.min(startX, endX) + curveOffsetX;
+      const midY = (startY + endY) / 2;
+
+      // Label position at the midpoint of the curve
+      const labelX = controlX - 45;
+      const labelY = midY - 12;
+
+      loopElements.push(
+        <g key={`loop-${pos.node.node_id}-${loopIdx}`}>
+          {/* Curved connector from departure to merge */}
+          <path
+            d={`M ${startX} ${startY} C ${controlX} ${startY}, ${controlX} ${endY}, ${endX} ${endY}`}
+            fill="none"
+            stroke="#eab308"
+            strokeWidth="2"
+            strokeDasharray="4 2"
+          />
+          {/* Arrowhead at merge point */}
+          <circle cx={endX} cy={endY} r="3" fill="#eab308" />
+          {/* Label */}
+          <foreignObject x={labelX} y={labelY} width={80} height={24}>
+            <div className="rounded bg-yellow-900/30 border border-yellow-600/30 px-1 text-center">
+              <span className="text-[10px] text-yellow-400 font-semibold">
+                {messageCount} alt msg{messageCount !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </foreignObject>
+        </g>
+      );
     });
 
     return loopElements;

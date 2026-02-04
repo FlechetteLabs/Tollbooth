@@ -229,7 +229,7 @@ function LikelySuggestionToggle({
 function AlternateLoopDisplay({
   loop,
 }: {
-  loop: { messages: Array<{ role: string; content: string }>; merge_point_id: string };
+  loop: { messages: Array<{ role: string; content: string }>; diverge_after_id: string; merge_at_id: string };
 }) {
   const [expanded, setExpanded] = useState(false);
   const msgCount = loop.messages.length;

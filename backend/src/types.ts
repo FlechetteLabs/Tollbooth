@@ -235,10 +235,11 @@ export interface ConversationTreeNode {
     timestamp: number;
   }>;
 
-  // Alternate paths that diverge then reconverge back to the main path
+  // Alternate paths that diverge from this node and reconverge with the main path
   alternate_loops?: Array<{
     messages: Array<{ role: string; content: string }>;
-    merge_point_id: string;  // node_id where this loop merges back
+    diverge_after_id: string;  // main-path node_id where loop departs (this node or ancestor)
+    merge_at_id: string;       // main-path node_id where loop rejoins
   }>;
 }
 

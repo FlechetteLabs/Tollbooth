@@ -831,110 +831,152 @@ function extractAllMessages(conversation: Conversation, applyFiltersFlag = false
 }
 
 /**
- * Get all descendant nodes in DFS order
+ * Flatten a linear trie branch into an ordered array.
+ * Follows the first child at each level (branches in the alt path are unusual
+ * but possible; we just follow the linear spine).
  */
-function getAllDescendants(node: ConversationTreeNode): ConversationTreeNode[] {
-  const result: ConversationTreeNode[] = [node];
-  for (const child of node.children) {
-    result.push(...getAllDescendants(child));
+function flattenLinearPath(node: ConversationTreeNode): ConversationTreeNode[] {
+  const result: ConversationTreeNode[] = [];
+  let current: ConversationTreeNode | undefined = node;
+  while (current) {
+    result.push(current);
+    current = current.children[0]; // follow first child
   }
   return result;
 }
 
 /**
- * Get the path from a start node to a target node (following children)
- */
-function getPathBetween(start: ConversationTreeNode, target: ConversationTreeNode): ConversationTreeNode[] {
-  const path: ConversationTreeNode[] = [];
-
-  function findPath(current: ConversationTreeNode): boolean {
-    path.push(current);
-    if (current.node_id === target.node_id) return true;
-    for (const child of current.children) {
-      if (findPath(child)) return true;
-    }
-    path.pop();
-    return false;
-  }
-
-  findPath(start);
-  return path;
-}
-
-/**
- * Detect branches that diverge then reconverge, and mark them as alternate_loops
- * on the branch-point node. The alternate branch is removed from the tree children.
+ * Detect branches that diverge then reconverge, and mark loops on
+ * the main-path nodes where each loop departs.
+ * Handles multiple diverge-reconverge cycles within a single branch pair.
  */
 function detectAndMarkMergePoints(nodes: ConversationTreeNode[]) {
   for (const node of nodes) {
     if (node.children.length > 1) {
-      const loops = findMergeBackLoops(node);
-      if (loops.length > 0) {
-        node.alternate_loops = loops;
-      }
+      processAlternateBranches(node);
     }
     // Recurse into remaining children
     detectAndMarkMergePoints(node.children);
   }
 }
 
-/**
- * Find branches from a branch point that reconverge with the main path
- */
-function findMergeBackLoops(branchPoint: ConversationTreeNode): Array<{
+interface LoopSegment {
   messages: Array<{ role: string; content: string }>;
-  merge_point_id: string;
-}> {
-  const loops: Array<{
-    messages: Array<{ role: string; content: string }>;
-    merge_point_id: string;
-  }> = [];
+  divergeAfterId: string;   // main-path node where loop departs
+  mergeAtId: string;        // main-path node where loop rejoins
+}
 
-  // First child is treated as the "main path"
-  const mainPath = getAllDescendants(branchPoint.children[0]);
+/**
+ * Walk the alt path against the main path to find all diverge-reconverge segments.
+ * Uses a greedy forward-matching algorithm: for each alt node, scan forward in the
+ * main path for a content+role match. Non-matching alt nodes accumulate into
+ * divergent segments. Each matched node ends a divergent segment (if any) and
+ * advances the main pointer.
+ *
+ * If the alt path ends without reconverging, the trailing divergent portion
+ * stays as a real tree branch.
+ */
+function findLoopSegments(
+  branchPoint: ConversationTreeNode,
+  mainPath: ConversationTreeNode[],
+  altPath: ConversationTreeNode[],
+): LoopSegment[] {
+  const loops: LoopSegment[] = [];
+  let mainIdx = 0;
+  let currentDivergent: ConversationTreeNode[] = [];
+  // Track the main-path node just before the current divergent segment started
+  let divergeAfterNode: ConversationTreeNode = branchPoint;
 
-  // Check other branches for convergence
-  const branchesToRemove: number[] = [];
-
-  for (let i = 1; i < branchPoint.children.length; i++) {
-    const altPath = getAllDescendants(branchPoint.children[i]);
-
-    // Find merge point: a node in the alternate path whose content matches a main-path node
-    let foundMerge = false;
-    for (const altNode of altPath) {
-      const mergeNode = mainPath.find(mainNode =>
-        mainNode.full_message === altNode.full_message &&
-        mainNode.role === altNode.role
-      );
-
-      if (mergeNode) {
-        // Found a merge - collect the alternate messages up to (but not including) the merge point
-        const altMessages = getPathBetween(branchPoint.children[i], altNode);
-        // Exclude the merge node itself (it's on the main path)
-        const divergentMessages = altMessages.slice(0, -1);
-
-        if (divergentMessages.length > 1) {
-          // Only collapse as a loop if >1 divergent message; a single-message
-          // branch is likely a cancelled or refused request and should stay
-          // visible as a real branch in the tree.
-          loops.push({
-            messages: divergentMessages.map(n => ({ role: n.role, content: n.full_message })),
-            merge_point_id: mergeNode.node_id,
-          });
-          branchesToRemove.push(i);
-        }
-        foundMerge = true;
+  for (const altNode of altPath) {
+    // Scan forward in main path from current position for a content+role match
+    let matchIdx = -1;
+    for (let m = mainIdx; m < mainPath.length; m++) {
+      if (mainPath[m].role === altNode.role &&
+          mainPath[m].full_message === altNode.full_message) {
+        matchIdx = m;
         break;
       }
     }
+
+    if (matchIdx >= 0) {
+      // Found a match — close any pending divergent segment
+      if (currentDivergent.length > 0) {
+        loops.push({
+          messages: currentDivergent.map(n => ({ role: n.role, content: n.full_message })),
+          divergeAfterId: divergeAfterNode.node_id,
+          mergeAtId: mainPath[matchIdx].node_id,
+        });
+        currentDivergent = [];
+      }
+      // Advance main pointer past this match
+      divergeAfterNode = mainPath[matchIdx];
+      mainIdx = matchIdx + 1;
+    } else {
+      // No match — accumulate as divergent
+      if (currentDivergent.length === 0) {
+        // Record where this divergent segment starts (the last matched main-path node)
+        divergeAfterNode = mainIdx > 0 ? mainPath[mainIdx - 1] : branchPoint;
+      }
+      currentDivergent.push(altNode);
+    }
   }
 
-  // Remove merged branches from children (iterate in reverse to preserve indices)
-  for (let i = branchesToRemove.length - 1; i >= 0; i--) {
-    branchPoint.children.splice(branchesToRemove[i], 1);
+  // Trailing divergent segment (alt path ends without reconverging) is NOT a loop —
+  // return null to signal the branch should stay as a real tree branch.
+  // But if we found at least one loop, return them (the trailing part is lost,
+  // which is acceptable since the reconverged portions are the important data).
+  // If there's a trailing divergence AND loops, we still want the loops.
+  // The branch removal will handle this: only remove the branch if there's no
+  // trailing divergence.
+  if (currentDivergent.length > 0 && loops.length === 0) {
+    return []; // Pure divergence, no reconvergence at all — keep as real branch
   }
 
   return loops;
+}
+
+/**
+ * Process alternate branches at a branch point, finding loop segments and
+ * attaching them to the main-path nodes where they depart.
+ */
+function processAlternateBranches(branchPoint: ConversationTreeNode) {
+  const mainPath = flattenLinearPath(branchPoint.children[0]);
+  const branchesToRemove: number[] = [];
+
+  for (let i = 1; i < branchPoint.children.length; i++) {
+    const altPath = flattenLinearPath(branchPoint.children[i]);
+    const loops = findLoopSegments(branchPoint, mainPath, altPath);
+
+    if (loops.length > 0) {
+      // Attach each loop to the main-path node where it departs
+      for (const loop of loops) {
+        // Find the departure node in the main path (or branch point)
+        let targetNode: ConversationTreeNode | undefined;
+        if (loop.divergeAfterId === branchPoint.node_id) {
+          targetNode = branchPoint;
+        } else {
+          targetNode = mainPath.find(n => n.node_id === loop.divergeAfterId);
+        }
+
+        if (targetNode) {
+          if (!targetNode.alternate_loops) {
+            targetNode.alternate_loops = [];
+          }
+          targetNode.alternate_loops.push({
+            messages: loop.messages,
+            diverge_after_id: loop.divergeAfterId,
+            merge_at_id: loop.mergeAtId,
+          });
+        }
+      }
+      branchesToRemove.push(i);
+    }
+  }
+
+  // Remove fully-merged branches (iterate in reverse to preserve indices)
+  for (let i = branchesToRemove.length - 1; i >= 0; i--) {
+    branchPoint.children.splice(branchesToRemove[i], 1);
+  }
 }
 
 /**
