@@ -66,15 +66,35 @@ export function TreeNode({
       {/* Role label */}
       <div className={clsx(
         'text-xs font-semibold mb-1',
+        node.is_likely_suggestion ? 'text-yellow-500' :
         isUser ? 'text-blue-400' : 'text-green-400'
       )}>
-        {isUser ? 'USER' : 'ASSISTANT'}
+        {node.is_likely_suggestion ? 'SUGGESTION?' : isUser ? 'USER' : 'ASSISTANT'}
       </div>
 
       {/* Message preview */}
-      <div className="text-sm line-clamp-3 text-inspector-text">
+      <div className={clsx(
+        'text-sm line-clamp-3',
+        node.is_likely_suggestion ? 'text-inspector-muted italic' : 'text-inspector-text'
+      )}>
         {node.message || '(empty)'}
       </div>
+
+      {/* Alternate loop indicator */}
+      {node.alternate_loops && node.alternate_loops.length > 0 && (
+        <div className="mt-2 text-xs text-yellow-400 flex items-center gap-1">
+          <span>{'\u27F2'}</span>
+          <span>{node.alternate_loops.length} alt path{node.alternate_loops.length !== 1 ? 's' : ''}</span>
+        </div>
+      )}
+
+      {/* Likely suggestions indicator */}
+      {node.likely_suggestions && node.likely_suggestions.length > 0 && (
+        <div className="mt-1 text-xs text-yellow-500 flex items-center gap-1">
+          <span>{'\u25B6'}</span>
+          <span>{node.likely_suggestions.length} suggestion{node.likely_suggestions.length !== 1 ? 's' : ''}</span>
+        </div>
+      )}
 
       {/* Footer with metadata */}
       <div className="mt-2 pt-2 border-t border-inspector-border/50 flex items-center justify-between text-xs text-inspector-muted">

@@ -406,6 +406,82 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
     return lines;
   };
 
+  // Render loop graphics for alternate paths
+  const renderLoopGraphics = (pos: PositionedNode) => {
+    const loops = pos.node.alternate_loops;
+    if (!loops || loops.length === 0) return null;
+
+    const nodeLeftX = pos.x + offsetX;
+    const nodeCenterY = pos.y + offsetY + pos.height / 2;
+    const loopElements: JSX.Element[] = [];
+
+    loops.forEach((loop, loopIdx) => {
+      const messageCount = loop.messages.length;
+      const loopOffsetX = -40 - loopIdx * 30; // Stack loops to the left
+
+      if (messageCount <= 5) {
+        // Small loop: curved side handle
+        const startX = nodeLeftX;
+        const startY = nodeCenterY - 10;
+        const endX = nodeLeftX;
+        const endY = nodeCenterY + 10;
+        const controlX = nodeLeftX + loopOffsetX;
+        const controlY = nodeCenterY;
+
+        loopElements.push(
+          <g key={`loop-${pos.node.node_id}-${loopIdx}`}>
+            <path
+              d={`M ${startX} ${startY} Q ${controlX} ${controlY}, ${endX} ${endY}`}
+              fill="none"
+              stroke="#eab308"
+              strokeWidth="2"
+              strokeDasharray="4 2"
+            />
+            <circle cx={controlX + 5} cy={controlY} r="3" fill="#eab308" />
+            <text
+              x={controlX - 5}
+              y={controlY - 8}
+              textAnchor="end"
+              className="text-[10px]"
+              fill="#eab308"
+            >
+              {messageCount} alt
+            </text>
+          </g>
+        );
+      } else {
+        // Large loop: collapsed node label
+        const labelX = nodeLeftX + loopOffsetX - 40;
+        const labelY = nodeCenterY - 20;
+        const labelW = 80;
+        const labelH = 40;
+
+        loopElements.push(
+          <g key={`loop-${pos.node.node_id}-${loopIdx}`}>
+            {/* Connector line from node to label */}
+            <line
+              x1={nodeLeftX}
+              y1={nodeCenterY}
+              x2={labelX + labelW}
+              y2={labelY + labelH / 2}
+              stroke="#eab308"
+              strokeWidth="1.5"
+              strokeDasharray="4 2"
+            />
+            <foreignObject x={labelX} y={labelY} width={labelW} height={labelH}>
+              <div className="rounded bg-yellow-900/20 border border-yellow-600/30 p-1 text-center h-full flex flex-col items-center justify-center">
+                <div className="text-[10px] text-yellow-400 font-semibold">{messageCount} msgs</div>
+                <div className="text-[9px] text-yellow-500/60">alternate</div>
+              </div>
+            </foreignObject>
+          </g>
+        );
+      }
+    });
+
+    return loopElements;
+  };
+
   // Render nodes
   const renderNodes = (positioned: PositionedNode[], isRoot = true) => {
     return positioned.map((pos, idx) => {
@@ -432,6 +508,8 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
               />
             </div>
           </foreignObject>
+          {/* Loop graphics for alternate paths */}
+          {renderLoopGraphics(pos)}
           {renderNodes(pos.children, false)}
         </g>
       );

@@ -43,6 +43,29 @@ function MessageBubble({
 }) {
   const isUser = msgNode.role === 'user';
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [suggestionExpanded, setSuggestionExpanded] = useState(false);
+  const isLikelySuggestion = msgNode.is_likely_suggestion;
+
+  // Likely-suggestion messages are hidden by default with a toggle
+  if (isLikelySuggestion && !suggestionExpanded) {
+    return (
+      <div
+        ref={isHighlighted ? scrollRef : undefined}
+        className="rounded-lg border border-yellow-600/20 bg-yellow-900/5 px-4 py-2 transition-all"
+      >
+        <button
+          onClick={() => setSuggestionExpanded(true)}
+          className="flex items-center gap-2 text-xs text-yellow-500 hover:text-yellow-400 transition-colors w-full"
+        >
+          <span className="text-[10px]">{'\u25B6'}</span>
+          <span className="font-semibold">Hidden: likely a prompt suggestion</span>
+          <span className="text-inspector-muted font-normal">
+            ({msgNode.full_message.length} chars) - click to show
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -50,19 +73,27 @@ function MessageBubble({
       className={clsx(
         'rounded-lg border p-4 transition-all',
         isHighlighted && 'ring-2 ring-cyan-400',
-        isUser
-          ? 'bg-blue-900/10 border-blue-500/30'
-          : 'bg-green-900/10 border-green-500/30'
+        isLikelySuggestion
+          ? 'bg-yellow-900/5 border-yellow-600/20'
+          : isUser
+            ? 'bg-blue-900/10 border-blue-500/30'
+            : 'bg-green-900/10 border-green-500/30'
       )}
     >
       {/* Message header */}
       <div className="flex flex-wrap items-center gap-2 text-sm mb-2">
-        <span className={clsx(
-          'px-2 py-0.5 rounded text-xs font-bold text-white',
-          isUser ? 'bg-blue-600' : 'bg-green-600'
-        )}>
-          {isUser ? 'USER' : 'ASSISTANT'}
-        </span>
+        {isLikelySuggestion ? (
+          <span className="px-2 py-0.5 rounded text-xs font-bold text-white bg-yellow-600">
+            SUGGESTION?
+          </span>
+        ) : (
+          <span className={clsx(
+            'px-2 py-0.5 rounded text-xs font-bold text-white',
+            isUser ? 'bg-blue-600' : 'bg-green-600'
+          )}>
+            {isUser ? 'USER' : 'ASSISTANT'}
+          </span>
+        )}
         <span className={clsx(
           'px-2 py-0.5 rounded text-xs font-bold text-white',
           msgNode.provider === 'anthropic' ? 'bg-orange-600' :
@@ -88,6 +119,14 @@ function MessageBubble({
           <span className="text-cyan-400 text-xs" title={`Tags: ${msgNode.tags.join(', ')}`}>
             T{msgNode.tags.length}
           </span>
+        )}
+        {isLikelySuggestion && (
+          <button
+            onClick={() => setSuggestionExpanded(false)}
+            className="text-xs text-yellow-500 hover:text-yellow-400 ml-auto"
+          >
+            hide
+          </button>
         )}
       </div>
 
@@ -115,9 +154,137 @@ function MessageBubble({
       )}
 
       {/* Message content */}
-      <pre className="text-sm whitespace-pre-wrap break-words text-inspector-text">
+      <pre className={clsx(
+        'text-sm whitespace-pre-wrap break-words',
+        isLikelySuggestion ? 'text-inspector-muted italic' : 'text-inspector-text'
+      )}>
         {msgNode.full_message || '(empty)'}
       </pre>
+    </div>
+  );
+}
+
+/**
+ * Inline likely-suggestion toggle (collapsed by default)
+ */
+function LikelySuggestionToggle({
+  suggestion,
+}: {
+  suggestion: { content: string; thinking?: string; timestamp: number };
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!expanded) {
+    return (
+      <div className="rounded-lg border border-yellow-600/20 bg-yellow-900/5 px-4 py-2 transition-all">
+        <button
+          onClick={() => setExpanded(true)}
+          className="flex items-center gap-2 text-xs text-yellow-500 hover:text-yellow-400 transition-colors w-full"
+        >
+          <span className="text-[10px]">{'\u25B6'}</span>
+          <span className="font-semibold">Hidden: likely a prompt suggestion</span>
+          <span className="text-inspector-muted font-normal">
+            ({suggestion.content.length} chars) - click to show
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-yellow-600/20 bg-yellow-900/5 p-4 transition-all">
+      <div className="flex items-center justify-between mb-2">
+        <span className="px-2 py-0.5 rounded text-xs font-bold text-white bg-yellow-600">
+          SUGGESTION?
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-inspector-muted">
+            {formatDate(suggestion.timestamp)} {formatTime(suggestion.timestamp)}
+          </span>
+          <button
+            onClick={() => setExpanded(false)}
+            className="text-xs text-yellow-500 hover:text-yellow-400"
+          >
+            hide
+          </button>
+        </div>
+      </div>
+      {suggestion.thinking && (
+        <div className="mb-2 border rounded-lg p-2 bg-purple-900/10 border-purple-500/30">
+          <pre className="text-xs whitespace-pre-wrap break-words text-purple-300/80 italic">
+            {suggestion.thinking}
+          </pre>
+        </div>
+      )}
+      <pre className="text-sm whitespace-pre-wrap break-words text-inspector-muted italic">
+        {suggestion.content}
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * Display for an alternate loop (merge-back path)
+ */
+function AlternateLoopDisplay({
+  loop,
+}: {
+  loop: { messages: Array<{ role: string; content: string }>; merge_point_id: string };
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const msgCount = loop.messages.length;
+
+  if (!expanded) {
+    return (
+      <div className="rounded-lg border border-yellow-600/20 bg-yellow-900/5 px-4 py-2 transition-all">
+        <button
+          onClick={() => setExpanded(true)}
+          className="flex items-center gap-2 text-xs text-yellow-500 hover:text-yellow-400 transition-colors w-full"
+        >
+          <span className="text-sm">{'\u27F2'}</span>
+          <span className="font-semibold">Alternate path</span>
+          <span className="text-inspector-muted font-normal">
+            ({msgCount} message{msgCount !== 1 ? 's' : ''}) - click to expand
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-yellow-600/20 bg-yellow-900/5 p-4 transition-all">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-yellow-400">{'\u27F2'}</span>
+          <span className="px-2 py-0.5 rounded text-xs font-bold text-white bg-yellow-600">
+            ALTERNATE PATH
+          </span>
+          <span className="text-xs text-inspector-muted">
+            {msgCount} message{msgCount !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <button
+          onClick={() => setExpanded(false)}
+          className="text-xs text-yellow-500 hover:text-yellow-400"
+        >
+          collapse
+        </button>
+      </div>
+      <div className="border-l-4 border-yellow-600/30 pl-3 space-y-2">
+        {loop.messages.map((msg, mIdx) => (
+          <div key={mIdx} className="text-sm">
+            <span className={clsx(
+              'text-xs font-bold mr-2',
+              msg.role === 'user' ? 'text-blue-400' : 'text-green-400'
+            )}>
+              {msg.role === 'user' ? 'USER' : 'ASSISTANT'}
+            </span>
+            <pre className="inline whitespace-pre-wrap break-words text-inspector-muted">
+              {msg.content.length > 300 ? msg.content.slice(0, 300) + '...' : msg.content}
+            </pre>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -258,6 +425,24 @@ export function NodeDetailModal({
                 isHighlighted={msgNode.node_id === node.node_id}
                 scrollRef={scrollRef}
               />
+
+              {/* Inline likely suggestions */}
+              {msgNode.likely_suggestions && msgNode.likely_suggestions.length > 0 && (
+                <div className="space-y-2 mt-2">
+                  {msgNode.likely_suggestions.map((suggestion, sIdx) => (
+                    <LikelySuggestionToggle key={sIdx} suggestion={suggestion} />
+                  ))}
+                </div>
+              )}
+
+              {/* Alternate loops (merge-back paths) */}
+              {msgNode.alternate_loops && msgNode.alternate_loops.length > 0 && (
+                <div className="space-y-2 mt-2">
+                  {msgNode.alternate_loops.map((loop, loopIdx) => (
+                    <AlternateLoopDisplay key={loopIdx} loop={loop} />
+                  ))}
+                </div>
+              )}
 
               {/* Branch selector if fork point */}
               {msgNode.children.length > 1 && (

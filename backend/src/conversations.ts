@@ -14,6 +14,8 @@ import {
   StreamChunk,
   LLMMessage,
   ContentBlock,
+  ToolResultContent,
+  ToolUseContent,
   TrafficFlow,
 } from './types';
 import { storage } from './storage';
@@ -380,17 +382,45 @@ export async function rebuildConversationsFromTraffic(options?: {
 // ============ Branch Detection & Tree Building ============
 
 /**
- * Extract text content from a message for comparison
+ * Extract text content from a tool_result's content field
+ */
+function extractToolResultContent(content: string | ContentBlock[]): string {
+  if (typeof content === 'string') return content;
+  return content
+    .filter(b => b.type === 'text')
+    .map(b => (b as any).text)
+    .join('\n');
+}
+
+/**
+ * Extract text content from a message for comparison.
+ * Includes text, tool_result, and tool_use content blocks.
  */
 function extractMessageText(message: LLMMessage, applyFilters = false): string {
   let text: string;
   if (typeof message.content === 'string') {
     text = message.content;
   } else {
-    text = message.content
-      .filter(b => b.type === 'text')
-      .map(b => (b as any).text)
-      .join('\n');
+    const parts: string[] = [];
+
+    for (const block of message.content) {
+      if (block.type === 'text') {
+        parts.push((block as any).text);
+      } else if (block.type === 'tool_result') {
+        const result = block as ToolResultContent;
+        const resultText = extractToolResultContent(result.content);
+        const prefix = result.is_error ? '[Tool Result: error]' : '[Tool Result]';
+        if (resultText) {
+          parts.push(`${prefix} ${resultText}`);
+        }
+      } else if (block.type === 'tool_use') {
+        const toolUse = block as ToolUseContent;
+        const inputStr = JSON.stringify(toolUse.input, null, 2);
+        parts.push(`[Tool: ${toolUse.name}] ${inputStr}`);
+      }
+    }
+
+    text = parts.join('\n');
   }
   return applyFilters ? applyMessageFilters(text) : text;
 }
@@ -650,6 +680,8 @@ interface ExtractedMessage {
   introducedInTurn: number;   // Which turn first included this message
   turn: ConversationTurn;     // The turn that introduced this message
   isSuggestion?: boolean;     // True if this is part of a suggestion mode pair
+  isLikelySuggestion?: boolean; // True if short assistant msg following another assistant msg
+  likelySuggestions?: ExtractedMessage[]; // Short consecutive assistant messages attached to this node
 }
 
 function extractAllMessages(conversation: Conversation, applyFiltersFlag = false): ExtractedMessage[] {
@@ -734,10 +766,145 @@ function extractAllMessages(conversation: Conversation, applyFiltersFlag = false
     }
 
     // Filter out suggestion messages
-    return messages.filter(m => !m.isSuggestion);
+    let filtered = messages.filter(m => !m.isSuggestion);
+
+    // Handle consecutive assistant messages:
+    // 1. If two consecutive assistant messages are identical, remove the duplicate
+    // 2. If the second of two consecutive assistant messages is very short (<150 chars),
+    //    collect it as a likely_suggestion on the previous message (instead of dropping)
+    const result: ExtractedMessage[] = [];
+    for (let i = 0; i < filtered.length; i++) {
+      const msg = filtered[i];
+      const prev = i > 0 ? filtered[i - 1] : null;
+
+      if (msg.role === 'assistant' && prev?.role === 'assistant') {
+        if (msg.content.trim() === prev.content.trim()) {
+          continue; // Skip exact duplicates
+        }
+        if (msg.content.length < 150) {
+          // Attach as a likely suggestion to the previous result message
+          const prevResult = result[result.length - 1];
+          if (prevResult) {
+            if (!prevResult.likelySuggestions) {
+              prevResult.likelySuggestions = [];
+            }
+            prevResult.likelySuggestions.push(msg);
+          }
+          continue;
+        }
+      }
+
+      result.push(msg);
+    }
+
+    return result;
   }
 
   return messages;
+}
+
+/**
+ * Get all descendant nodes in DFS order
+ */
+function getAllDescendants(node: ConversationTreeNode): ConversationTreeNode[] {
+  const result: ConversationTreeNode[] = [node];
+  for (const child of node.children) {
+    result.push(...getAllDescendants(child));
+  }
+  return result;
+}
+
+/**
+ * Get the path from a start node to a target node (following children)
+ */
+function getPathBetween(start: ConversationTreeNode, target: ConversationTreeNode): ConversationTreeNode[] {
+  const path: ConversationTreeNode[] = [];
+
+  function findPath(current: ConversationTreeNode): boolean {
+    path.push(current);
+    if (current.node_id === target.node_id) return true;
+    for (const child of current.children) {
+      if (findPath(child)) return true;
+    }
+    path.pop();
+    return false;
+  }
+
+  findPath(start);
+  return path;
+}
+
+/**
+ * Detect branches that diverge then reconverge, and mark them as alternate_loops
+ * on the branch-point node. The alternate branch is removed from the tree children.
+ */
+function detectAndMarkMergePoints(nodes: ConversationTreeNode[]) {
+  for (const node of nodes) {
+    if (node.children.length > 1) {
+      const loops = findMergeBackLoops(node);
+      if (loops.length > 0) {
+        node.alternate_loops = loops;
+      }
+    }
+    // Recurse into remaining children
+    detectAndMarkMergePoints(node.children);
+  }
+}
+
+/**
+ * Find branches from a branch point that reconverge with the main path
+ */
+function findMergeBackLoops(branchPoint: ConversationTreeNode): Array<{
+  messages: Array<{ role: string; content: string }>;
+  merge_point_id: string;
+}> {
+  const loops: Array<{
+    messages: Array<{ role: string; content: string }>;
+    merge_point_id: string;
+  }> = [];
+
+  // First child is treated as the "main path"
+  const mainPath = getAllDescendants(branchPoint.children[0]);
+
+  // Check other branches for convergence
+  const branchesToRemove: number[] = [];
+
+  for (let i = 1; i < branchPoint.children.length; i++) {
+    const altPath = getAllDescendants(branchPoint.children[i]);
+
+    // Find merge point: a node in the alternate path whose content matches a main-path node
+    let foundMerge = false;
+    for (const altNode of altPath) {
+      const mergeNode = mainPath.find(mainNode =>
+        mainNode.full_message === altNode.full_message &&
+        mainNode.role === altNode.role
+      );
+
+      if (mergeNode) {
+        // Found a merge - collect the alternate messages up to (but not including) the merge point
+        const altMessages = getPathBetween(branchPoint.children[i], altNode);
+        // Exclude the merge node itself (it's on the main path)
+        const divergentMessages = altMessages.slice(0, -1);
+
+        if (divergentMessages.length > 0) {
+          loops.push({
+            messages: divergentMessages.map(n => ({ role: n.role, content: n.full_message })),
+            merge_point_id: mergeNode.node_id,
+          });
+          branchesToRemove.push(i);
+        }
+        foundMerge = true;
+        break;
+      }
+    }
+  }
+
+  // Remove merged branches from children (iterate in reverse to preserve indices)
+  for (let i = branchesToRemove.length - 1; i >= 0; i--) {
+    branchPoint.children.splice(branchesToRemove[i], 1);
+  }
+
+  return loops;
 }
 
 /**
@@ -843,6 +1010,12 @@ export function buildConversationTree(conversationId: string): ConversationTree 
             children: [],
             has_annotation: !!(turnAnnotation?.title || turnAnnotation?.body),
             tags: m.turn.tags || turnAnnotation?.tags || undefined,
+            is_likely_suggestion: m.isLikelySuggestion || undefined,
+            likely_suggestions: m.likelySuggestions?.map(s => ({
+              content: s.content,
+              thinking: s.thinking || undefined,
+              timestamp: s.turn.timestamp,
+            })),
           };
           parentChildren.push(node);
           parentChildren = node.children;
@@ -851,6 +1024,9 @@ export function buildConversationTree(conversationId: string): ConversationTree 
       }
     }
   }
+
+  // Detect and mark merge-back loops in the trie
+  detectAndMarkMergePoints(trieRoot);
 
   // Log trie result
   function logTrieShape(nodes: ConversationTreeNode[], depth: number) {

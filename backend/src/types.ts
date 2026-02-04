@@ -224,6 +224,22 @@ export interface ConversationTreeNode {
   // Annotation indicators
   has_annotation?: boolean;     // True if turn has annotation with title/body
   tags?: string[];              // Tags from turn annotation
+
+  // Likely suggestion indicator (short assistant msg following another assistant msg)
+  is_likely_suggestion?: boolean;
+
+  // Likely suggestions attached to this node (short consecutive assistant messages)
+  likely_suggestions?: Array<{
+    content: string;
+    thinking?: string;
+    timestamp: number;
+  }>;
+
+  // Alternate paths that diverge then reconverge back to the main path
+  alternate_loops?: Array<{
+    messages: Array<{ role: string; content: string }>;
+    merge_point_id: string;  // node_id where this loop merges back
+  }>;
 }
 
 export interface ConversationTree {
