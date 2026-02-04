@@ -995,12 +995,12 @@ function GlossopetraeSettings() {
         <p className="text-sm text-inspector-muted mt-2">
           Learn more at{' '}
           <a
-            href="https://github.com/plinylmao/GLOSSOPETRAE"
+            href="https://github.com/elder-plinius/GLOSSOPETRAE"
             target="_blank"
             rel="noopener noreferrer"
             className="text-cyan-400 hover:underline"
           >
-            github.com/plinylmao/GLOSSOPETRAE
+            github.com/elder-plinius/GLOSSOPETRAE
           </a>
         </p>
       </section>

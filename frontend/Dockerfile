@@ -3,7 +3,7 @@ FROM node:20-alpine
 # Glossopetrae build arguments
 ARG ENABLE_GLOSSOPETRAE=false
 ARG GLOSSOPETRAE_VERSION=main
-ARG GLOSSOPETRAE_REPO=https://github.com/plinylmao/GLOSSOPETRAE.git
+ARG GLOSSOPETRAE_REPO=https://github.com/elder-plinius/GLOSSOPETRAE.git
 
 # Set Vite environment variable for Glossopetrae (available at build and runtime)
 ENV VITE_GLOSSOPETRAE_ENABLED=$ENABLE_GLOSSOPETRAE

@@ -51,7 +51,7 @@ services:
         # Enable Glossopetrae for backend search/filter by decoded content
         - ENABLE_GLOSSOPETRAE=${ENABLE_GLOSSOPETRAE:-false}
         - GLOSSOPETRAE_VERSION=${GLOSSOPETRAE_VERSION:-main}
-        - GLOSSOPETRAE_REPO=${GLOSSOPETRAE_REPO:-https://github.com/plinylmao/GLOSSOPETRAE.git}
+        - GLOSSOPETRAE_REPO=${GLOSSOPETRAE_REPO:-https://github.com/elder-plinius/GLOSSOPETRAE.git}
     ports:
       - "2000:3000"  # REST API (browser fetches data)
       - "2002:3002"  # WebSocket for frontend (browser real-time updates)
@@ -115,7 +115,7 @@ services:
         # Version to install: 'latest', 'main', or a specific tag like 'v1.0.0'
         - GLOSSOPETRAE_VERSION=${GLOSSOPETRAE_VERSION:-main}
         # Repository URL (can be overridden for forks)
-        - GLOSSOPETRAE_REPO=${GLOSSOPETRAE_REPO:-https://github.com/plinylmao/GLOSSOPETRAE.git}
+        - GLOSSOPETRAE_REPO=${GLOSSOPETRAE_REPO:-https://github.com/elder-plinius/GLOSSOPETRAE.git}
     ports:
       - "5173:5173"
     volumes:

@@ -3,7 +3,7 @@ FROM node:20-slim
 # Glossopetrae build arguments
 ARG ENABLE_GLOSSOPETRAE=false
 ARG GLOSSOPETRAE_VERSION=main
-ARG GLOSSOPETRAE_REPO=https://github.com/plinylmao/GLOSSOPETRAE.git
+ARG GLOSSOPETRAE_REPO=https://github.com/elder-plinius/GLOSSOPETRAE.git
 
 # Install build dependencies for native modules (needed by @xenova/transformers)
 # Also install git if Glossopetrae is enabled

@@ -78,7 +78,7 @@ This tool is designed for **research and development use only**. See the [Securi
 
 ## Glossopetrae Integration (Optional)
 
-Tollbooth optionally integrates with [Glossopetrae](https://github.com/plinylmao/GLOSSOPETRAE), a procedural xenolinguistics engine for decoding conlang text in agent communications.
+Tollbooth optionally integrates with [Glossopetrae](https://github.com/elder-plinius/GLOSSOPETRAE), a procedural xenolinguistics engine for decoding conlang text in agent communications.
 
 ```bash
 # Enable Glossopetrae during build
