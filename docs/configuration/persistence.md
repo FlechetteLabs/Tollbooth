@@ -22,9 +22,12 @@ tollbooth-data/
 │   ├── settings.json        # Application settings
 │   ├── presets.json         # Filter presets
 │   ├── templates.json       # Prompt templates
-│   └── refusal-rules.json   # Refusal detection rules
+│   ├── refusal-rules.json   # Refusal detection rules
+│   └── message-filters.json # Message display filters
 ├── traffic/
 │   └── <flow_id>.json       # One file per traffic flow
+├── conversations/
+│   └── <conversation_id>.json  # One file per conversation
 ├── replay/
 │   ├── <variant_id>.json    # Replay variants
 │   └── _names.json          # Replay names
@@ -39,11 +42,12 @@ Disable specific categories with environment variables:
 
 ```yaml
 environment:
-  - TOLLBOOTH_PERSIST_TRAFFIC=false   # Don't save traffic
-  - TOLLBOOTH_PERSIST_REPLAY=false    # Don't save replay variants
-  - TOLLBOOTH_PERSIST_RULES=false     # Don't save rules
-  - TOLLBOOTH_PERSIST_CONFIG=false    # Don't save config files
-  - TOLLBOOTH_PERSIST_STORE=false     # Don't save datastore
+  - TOLLBOOTH_PERSIST_TRAFFIC=false        # Don't save traffic
+  - TOLLBOOTH_PERSIST_CONVERSATIONS=false  # Don't save conversations
+  - TOLLBOOTH_PERSIST_REPLAY=false         # Don't save replay variants
+  - TOLLBOOTH_PERSIST_RULES=false          # Don't save rules
+  - TOLLBOOTH_PERSIST_CONFIG=false         # Don't save config files
+  - TOLLBOOTH_PERSIST_STORE=false          # Don't save datastore
 ```
 
 All default to `true` when `/data` is mounted.

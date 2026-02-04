@@ -101,7 +101,7 @@ When traffic has been modified by rules or manual intercept:
 
 ## Bulk Actions
 
-Select multiple flows using checkboxes:
+Select multiple flows using checkboxes or **shift-click** for range selection:
 
 - **Hide Selected**: Remove from view (can restore with "Show Hidden")
 - **Clear Selected**: Permanently delete

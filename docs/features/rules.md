@@ -71,6 +71,7 @@ Match (Host contains "api.anthropic.com" AND method = "POST")
 |--------|-------------|
 | **Passthrough** | Log only, don't intercept |
 | **Intercept** | Hold for manual editing |
+| **Drop** | Cancel the request entirely (requests only) |
 | **Serve from Data Store** | Return stored response/request |
 | **Modify Body & Headers** | Apply automatic modifications |
 | **LLM Modification** | Use LLM to transform content |
@@ -101,6 +102,16 @@ Return pre-configured responses instead of forwarding to the real API.
 
 Rules with datastore actions show an expandable preview in the rule list.
 
+## Drop
+
+The Drop action cancels the request without forwarding it to the destination server. This is useful for:
+
+- Blocking specific API calls
+- Preventing unwanted requests from reaching external services
+- Testing agent behavior when requests fail silently
+
+Drop is only available for request rules.
+
 ## Modify Body & Headers
 
 Apply automatic transformations to traffic.
@@ -119,6 +130,20 @@ Apply automatic transformations to traffic.
 | Set | Add or overwrite header |
 | Remove | Delete header |
 | Find/Replace | Modify header value |
+
+### Allow Intercept
+
+The **Allow Intercept** option can be enabled on Modify Body & Headers rules. When set:
+
+1. The rule's modifications are applied to the request/response
+2. The modified traffic is then placed in the Intercept queue for manual review
+3. You can inspect, further edit, or forward the pre-modified traffic
+
+This combines automated modification with manual oversight.
+
+### Smart Fall-Through
+
+If a Modify Body & Headers rule matches a request but none of its modifications actually change the content (e.g., a find/replace pattern that doesn't match), the rules engine falls through to the next matching rule instead of forwarding unchanged traffic.
 
 ### Dynamic Variables
 

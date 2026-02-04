@@ -100,9 +100,26 @@ docker compose build --no-cache
 tollbooth/
 ├── backend/           # Node.js backend
 │   ├── src/           # TypeScript source
+│   │   ├── parsers.ts              # API provider parsers
+│   │   ├── conversations.ts        # Conversation correlation & tree building
+│   │   ├── intercept.ts            # Request/response interception
+│   │   ├── rules.ts                # Rules engine
+│   │   ├── storage.ts              # Traffic & data storage
+│   │   ├── persistence.ts          # Disk persistence
+│   │   ├── message-filter.ts       # Message content filters
+│   │   └── refusal/                # Refusal detection system
 │   └── Dockerfile
 ├── frontend/          # React frontend
 │   ├── src/           # TypeScript/React source
+│   │   ├── components/
+│   │   │   ├── conversation/       # Conversation views (list, detail, tree, compare)
+│   │   │   ├── intercept/          # Intercept queue
+│   │   │   ├── rules/              # Rules editor
+│   │   │   ├── traffic/            # Traffic list and detail
+│   │   │   ├── settings/           # Settings view
+│   │   │   └── shared/             # Shared components (annotations, etc.)
+│   │   ├── hooks/                  # React hooks (WebSocket, etc.)
+│   │   └── stores/                 # Zustand state stores
 │   └── Dockerfile
 ├── proxy/             # mitmproxy addon
 │   ├── addon.py       # Python addon script

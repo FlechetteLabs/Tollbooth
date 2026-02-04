@@ -19,7 +19,11 @@ While it was built for monitoring LLM agent communications (with automatic parsi
 
 - **Inspect All Traffic** - See every HTTP request from the container. LLM API calls are automatically parsed into readable conversations; other traffic is shown in raw format.
 
-- **Modify Requests** - Intercept and edit any request before it reaches its destination. Change headers, bodies, or drop requests entirely.
+- **Conversation Trees** - Visualize branching conversations with a gitflow-style tree view. Retries, replays, and natural divergence create branches; reconverged content is deduplicated with merge connector arcs.
+
+- **Modify Requests** - Intercept and edit any request before it reaches its destination. Change headers, bodies, or drop requests entirely. Mark items as timeout-immune for extended inspection.
+
+- **Export Conversations** - Export conversations as JSON, Markdown, or styled HTML. Single or bulk export supported.
 
 - **Mock Responses** - Serve stored responses instead of forwarding requests. Test edge cases, simulate errors, or cache expensive calls.
 

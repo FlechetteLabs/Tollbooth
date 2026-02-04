@@ -16,7 +16,20 @@ REST API available at `localhost:2000`.
 | `/api/traffic/clear-bulk` | DELETE | Delete multiple flows |
 | `/api/conversations` | GET | Get all conversations |
 | `/api/conversations/:id` | GET | Get single conversation |
+| `/api/conversations/:id/export` | GET | Export conversation (`?format=json\|markdown\|html`) |
+| `/api/conversations/export` | POST | Bulk export conversations |
+| `/api/conversations/rebuild` | POST | Rebuild conversations from traffic |
+| `/api/conversations/rebuild-branches` | POST | Re-detect all branch relationships |
+| `/api/conversations/roots` | GET | Get all root conversations (no parent) |
+| `/api/conversations/tree-stats` | GET | Get tree statistics |
 | `/api/clear` | POST | Clear all stored data |
+
+## Conversation Trees
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/conversations/:id/tree` | GET | Get conversation tree (merged trie) |
+| `/api/conversations/:id/related` | GET | Get related trees (via replay links) |
 
 ## Intercept
 
@@ -28,6 +41,7 @@ REST API available at `localhost:2000`.
 | `/api/intercept/:flowId/forward` | POST | Forward intercepted request |
 | `/api/intercept/:flowId/forward-modified` | POST | Forward with modifications |
 | `/api/intercept/:flowId/drop` | POST | Drop intercepted request |
+| `/api/intercept/:flowId/timeout-immune` | POST | Toggle timeout immunity |
 
 ## Rules
 
@@ -93,12 +107,26 @@ REST API available at `localhost:2000`.
 
 ## Annotations
 
+### Traffic Annotations
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/traffic/:flowId/annotation` | GET | Get annotation for a flow |
 | `/api/traffic/:flowId/annotation` | PUT | Set annotation for a flow |
 | `/api/traffic/:flowId/annotation` | DELETE | Delete annotation |
 | `/api/annotations/tags` | GET | Get all unique tags |
+
+### Conversation Annotations
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/conversations/:id/annotation` | GET | Get conversation annotation |
+| `/api/conversations/:id/annotation` | PUT | Set conversation annotation |
+| `/api/conversations/:id/annotation` | DELETE | Delete conversation annotation |
+| `/api/conversations/:id/starred` | PUT | Set starred status |
+| `/api/conversations/:id/turns/:turnId/annotation` | GET | Get turn annotation |
+| `/api/conversations/:id/turns/:turnId/annotation` | PUT | Set turn annotation |
+| `/api/conversations/:id/turns/:turnId/annotation` | DELETE | Delete turn annotation |
 
 ## Settings & Chat
 

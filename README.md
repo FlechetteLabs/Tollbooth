@@ -11,9 +11,11 @@ Works with **Claude Code**, **Codex CLI**, **Cursor**, **Aider**, and any tool t
 Tollbooth is a man-in-the-middle proxy that captures **all network traffic** from the agent container. While built for monitoring LLM agent communications (with automatic parsing of API calls into conversations), it intercepts everything—including requests from tools that agents invoke, package managers, and any other network activity. Useful for agent research, security testing, and network debugging.
 
 - **Inspect All Traffic** - See every HTTP request. LLM API calls are parsed into readable conversations; other traffic shown raw.
-- **Modify Requests** - Intercept and edit any request before it reaches its destination
+- **Conversation Trees** - Visualize branching conversations with a gitflow-style tree view. Branches from retries, replays, and natural divergence are shown with merge connectors where paths reconverge.
+- **Modify Requests** - Intercept and edit any request before it reaches its destination. Mark items as timeout-immune for extended inspection.
 - **Mock Responses** - Serve stored responses instead of forwarding requests
-- **Rules Engine** - Automated traffic handling with priority-based rules, static modifications, and smart fall-through when modifications don't apply
+- **Rules Engine** - Automated traffic handling with priority-based rules, static modifications, drop actions, and smart fall-through when modifications don't apply
+- **Export Conversations** - Export conversations as JSON, Markdown, or styled HTML
 - **Detect Refusals** - ML-powered detection of LLM refusals with automatic handling
 
 ## Quick Start
@@ -61,7 +63,7 @@ docker compose run --rm agent
 Full documentation is available at **[flechettelabs.com/tollbooth](https://flechettelabs.com/tollbooth)**:
 
 - [Getting Started](https://flechettelabs.com/tollbooth/getting-started/) - Prerequisites and setup
-- [Features](https://flechettelabs.com/tollbooth/features/traffic-view/) - Traffic view, conversations, intercept, rules, and more
+- [Features](https://flechettelabs.com/tollbooth/features/traffic-view/) - Traffic view, conversations, tree view, intercept, rules, and more
 - [Configuration](https://flechettelabs.com/tollbooth/configuration/agent-container/) - Agent container, manual setup, environment variables
 - [API Reference](https://flechettelabs.com/tollbooth/api-reference/) - REST API endpoints
 - [Security](https://flechettelabs.com/tollbooth/security/) - Important security considerations

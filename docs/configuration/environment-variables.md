@@ -34,6 +34,7 @@ See [Data Persistence](persistence.md) for details.
 |----------|---------|-------------|
 | `TOLLBOOTH_DATA_PATH` | `/data` | Base path for persistent data |
 | `TOLLBOOTH_PERSIST_TRAFFIC` | `true` | Persist traffic flows |
+| `TOLLBOOTH_PERSIST_CONVERSATIONS` | `true` | Persist conversations |
 | `TOLLBOOTH_PERSIST_REPLAY` | `true` | Persist replay variants |
 | `TOLLBOOTH_PERSIST_RULES` | `true` | Persist rules |
 | `TOLLBOOTH_PERSIST_CONFIG` | `true` | Persist config files |

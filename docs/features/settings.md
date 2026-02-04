@@ -83,6 +83,49 @@ Reason: {{reason}}
 
 Variables use `{{variable_name}}` syntax.
 
+## Message Filters
+
+Configure content filters to clean up conversation tree view display. Filters remove matched content from the tree visualization without modifying the underlying data.
+
+### Creating Filters
+
+1. Go to Settings
+2. Open the **Message Filters** section
+3. Add patterns to filter out
+
+### Filter Options
+
+| Field | Description |
+|-------|-------------|
+| Name | Descriptive name |
+| Pattern | Text or regex pattern to match |
+| Regex | Enable regex matching |
+| Enabled | Toggle on/off |
+
+### Use Cases
+
+- Remove verbose tool result content (base64 data, large JSON blobs)
+- Hide repetitive boilerplate messages
+- Clean up tree view for readability
+
+### Skip Whitespace-Only
+
+When enabled, messages that become whitespace-only after filtering are removed from the tree entirely.
+
+## Glossopetrae (Optional)
+
+When Tollbooth is built with Glossopetrae enabled, additional settings appear:
+
+- **Language Seeds** - Configure seed values for conlang decode/encode
+- Decode buttons appear in conversation and traffic views
+- Bidirectional translation (decode conlang to English, encode English to conlang in intercept)
+
+See the [README](https://github.com/flechettelabs/tollbooth#glossopetrae-integration-optional) for build instructions.
+
+## Rebuild Conversations
+
+Click **Rebuild Conversations** to reprocess all LLM traffic and recreate conversation correlations. Useful after importing traffic data or if conversations get out of sync.
+
 ## Data Store Path
 
 Shows the configured data store location (read-only, set via Docker mount).

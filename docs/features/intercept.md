@@ -27,6 +27,7 @@ When traffic is intercepted, it appears in the queue showing:
 
 - Click to select individual items
 - Use checkboxes for multi-select
+- **Shift-click** to select a range of items
 - Selection helpers: All, None, Requests only, Responses only
 
 ### Bulk Actions
@@ -75,6 +76,12 @@ If you need more time:
 1. Forward the current request
 2. Make your changes to the rule or datastore
 3. Trigger a new request from your agent
+
+### Timeout Immunity
+
+Mark individual intercepted items as **timeout immune** to prevent auto-forwarding. Immune items remain in the queue indefinitely until you manually forward or drop them.
+
+Use this when you need extended time to inspect or modify a specific request without worrying about the 5-minute deadline.
 
 ## Use Cases
 
