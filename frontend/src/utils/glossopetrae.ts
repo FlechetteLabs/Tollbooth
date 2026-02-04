@@ -56,9 +56,9 @@ export async function initializeGlossopetrae(): Promise<boolean> {
 
   try {
     // Dynamic import - only reached when VITE_GLOSSOPETRAE_ENABLED=true
-    // At that point, the files should exist because they were installed during Docker build
-    // Using a variable path bypasses Vite's static import analysis
-    const modulePath = '../lib/glossopetrae/skill/GlossopetraeSkill.js';
+    // Files live at /opt/glossopetrae (outside volume-mounted /app/src) so they
+    // survive the dev volume mount. Vite serves them via its /@fs/ prefix.
+    const modulePath = '/@fs/opt/glossopetrae/skill/GlossopetraeSkill.js';
     const module = await import(/* @vite-ignore */ modulePath);
     GlossopetraeSkill = module.GlossopetraeSkill || module.default;
     glossopetraeAvailable = true;

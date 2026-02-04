@@ -112,6 +112,7 @@ services:
         # Enable Glossopetrae conlang decoder for agent communication research
         # Set to 'true' to install Glossopetrae during build
         - ENABLE_GLOSSOPETRAE=${ENABLE_GLOSSOPETRAE:-false}
+        #- ENABLE_GLOSSOPETRAE=true
         # Version to install: 'latest', 'main', or a specific tag like 'v1.0.0'
         - GLOSSOPETRAE_VERSION=${GLOSSOPETRAE_VERSION:-main}
         # Repository URL (can be overridden for forks)
@@ -122,11 +123,13 @@ services:
       - ./frontend/src:/app/src:ro
       - ./frontend/index.html:/app/index.html:ro
       # For local Glossopetrae development, mount your local checkout:
-      # - ../GLOSSOPETRAE/src:/app/src/lib/glossopetrae:ro
+      # - ../GLOSSOPETRAE/src:/opt/glossopetrae:ro
     environment:
       - VITE_BACKEND_URL=http://localhost:2000
       - VITE_WS_URL=ws://localhost:2002
-      - VITE_GLOSSOPETRAE_ENABLED=${ENABLE_GLOSSOPETRAE:-false}
+      # VITE_GLOSSOPETRAE_ENABLED is set by the Dockerfile ENV from the
+      # ENABLE_GLOSSOPETRAE build arg. Don't override it here — that would
+      # read from the host shell and break hardcoded build arg values.
     depends_on:
       - backend
     networks:

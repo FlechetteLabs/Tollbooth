@@ -26,13 +26,12 @@ COPY . .
 # Clone Glossopetrae if enabled
 RUN if [ "$ENABLE_GLOSSOPETRAE" = "true" ]; then \
       echo "Installing Glossopetrae (version: $GLOSSOPETRAE_VERSION)..."; \
-      mkdir -p /app/src/lib; \
       if [ "$GLOSSOPETRAE_VERSION" = "latest" ] || [ "$GLOSSOPETRAE_VERSION" = "main" ]; then \
         git clone --depth 1 "$GLOSSOPETRAE_REPO" /tmp/glossopetrae; \
       else \
         git clone --depth 1 --branch "$GLOSSOPETRAE_VERSION" "$GLOSSOPETRAE_REPO" /tmp/glossopetrae; \
       fi; \
-      cp -r /tmp/glossopetrae/src /app/src/lib/glossopetrae; \
+      cp -r /tmp/glossopetrae/src /opt/glossopetrae; \
       rm -rf /tmp/glossopetrae; \
       echo "Glossopetrae installed successfully"; \
     else \
