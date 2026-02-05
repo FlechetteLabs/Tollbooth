@@ -104,6 +104,14 @@ export function TreeNode({
               *
             </span>
           )}
+          {node.parameter_modifications?.hasModifications && (
+            <span
+              className="text-yellow-400"
+              title="Parameters modified (system/tools/temperature/tokens/model)"
+            >
+              P
+            </span>
+          )}
           {node.has_annotation && (
             <span className="text-blue-400" title="Has annotation">
               A

@@ -176,6 +176,20 @@ export interface Conversation {
   starred?: boolean;
 }
 
+// ============ Parameter Modification Types ============
+
+export interface ParameterModification {
+  field: 'system' | 'tools' | 'temperature' | 'max_tokens' | 'model';
+  oldValue: any;
+  newValue: any;
+  modificationType: 'intercept' | 'between_turn';
+}
+
+export interface ParameterModifications {
+  hasModifications: boolean;
+  modifications: ParameterModification[];
+}
+
 // ============ Conversation Tree Types ============
 
 export interface ConversationTreeNode {
@@ -210,6 +224,9 @@ export interface ConversationTreeNode {
     thinking?: string;
     timestamp: number;
   }>;
+
+  // Parameter modifications (system, tools, temperature, max_tokens, model)
+  parameter_modifications?: ParameterModifications;
 }
 
 export interface ConversationTree {

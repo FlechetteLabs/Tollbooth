@@ -9,6 +9,7 @@ import { clsx } from 'clsx';
 import { ConversationTreeNode } from '../../types';
 import { Modal } from '../shared/Modal';
 import { AnnotationPanel } from '../shared/AnnotationPanel';
+import { ParameterModificationsSection } from './ParameterModificationsSection';
 
 interface NodeDetailModalProps {
   node: ConversationTreeNode;           // The node that was clicked (for auto-scroll)
@@ -151,6 +152,13 @@ function MessageBubble({
             </div>
           )}
         </div>
+      )}
+
+      {/* Parameter modifications (collapsible) */}
+      {msgNode.parameter_modifications?.hasModifications && (
+        <ParameterModificationsSection
+          modifications={msgNode.parameter_modifications}
+        />
       )}
 
       {/* Message content */}

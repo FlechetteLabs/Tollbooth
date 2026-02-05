@@ -17,6 +17,8 @@ import {
   ToolResultContent,
   ToolUseContent,
   TrafficFlow,
+  ParameterModification,
+  ParameterModifications,
 } from './types';
 import { storage } from './storage';
 import { parseStreamChunk, parseRequest, parseResponse } from './parsers';
@@ -1074,6 +1076,186 @@ function applyGitflowMerge(
   }
 }
 
+// ============ Parameter Modification Detection ============
+
+/**
+ * Deep equality check for comparing parameter values
+ */
+function deepEqual(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  if (typeof a !== typeof b) return false;
+
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  if (typeof a === 'object') {
+    const keysA = Object.keys(a).sort();
+    const keysB = Object.keys(b).sort();
+    if (!deepEqual(keysA, keysB)) return false;
+    for (const key of keysA) {
+      if (!deepEqual(a[key], b[key])) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Detect parameter modifications from intercept/rule changes
+ * Compares the sent request with the original request before modification
+ */
+function detectInterceptModifications(
+  request: ParsedLLMRequest,
+  originalRequest?: ParsedLLMRequest
+): ParameterModification[] {
+  if (!originalRequest) return [];
+
+  const modifications: ParameterModification[] = [];
+
+  if (request.system !== originalRequest.system) {
+    modifications.push({
+      field: 'system',
+      oldValue: originalRequest.system,
+      newValue: request.system,
+      modificationType: 'intercept'
+    });
+  }
+
+  if (!deepEqual(request.tools, originalRequest.tools)) {
+    modifications.push({
+      field: 'tools',
+      oldValue: originalRequest.tools,
+      newValue: request.tools,
+      modificationType: 'intercept'
+    });
+  }
+
+  if (request.temperature !== originalRequest.temperature) {
+    modifications.push({
+      field: 'temperature',
+      oldValue: originalRequest.temperature,
+      newValue: request.temperature,
+      modificationType: 'intercept'
+    });
+  }
+
+  if (request.max_tokens !== originalRequest.max_tokens) {
+    modifications.push({
+      field: 'max_tokens',
+      oldValue: originalRequest.max_tokens,
+      newValue: request.max_tokens,
+      modificationType: 'intercept'
+    });
+  }
+
+  if (request.model !== originalRequest.model) {
+    modifications.push({
+      field: 'model',
+      oldValue: originalRequest.model,
+      newValue: request.model,
+      modificationType: 'intercept'
+    });
+  }
+
+  return modifications;
+}
+
+/**
+ * Detect parameter changes between turns in the same conversation
+ */
+function detectBetweenTurnChanges(
+  currentRequest: ParsedLLMRequest,
+  previousTurn?: ConversationTurn
+): ParameterModification[] {
+  if (!previousTurn) return [];
+
+  const modifications: ParameterModification[] = [];
+  const prevRequest = previousTurn.request;
+
+  if (currentRequest.system !== prevRequest.system) {
+    modifications.push({
+      field: 'system',
+      oldValue: prevRequest.system,
+      newValue: currentRequest.system,
+      modificationType: 'between_turn'
+    });
+  }
+
+  if (!deepEqual(currentRequest.tools, prevRequest.tools)) {
+    modifications.push({
+      field: 'tools',
+      oldValue: prevRequest.tools,
+      newValue: currentRequest.tools,
+      modificationType: 'between_turn'
+    });
+  }
+
+  if (currentRequest.temperature !== prevRequest.temperature) {
+    modifications.push({
+      field: 'temperature',
+      oldValue: prevRequest.temperature,
+      newValue: currentRequest.temperature,
+      modificationType: 'between_turn'
+    });
+  }
+
+  if (currentRequest.max_tokens !== prevRequest.max_tokens) {
+    modifications.push({
+      field: 'max_tokens',
+      oldValue: prevRequest.max_tokens,
+      newValue: currentRequest.max_tokens,
+      modificationType: 'between_turn'
+    });
+  }
+
+  if (currentRequest.model !== prevRequest.model) {
+    modifications.push({
+      field: 'model',
+      oldValue: prevRequest.model,
+      newValue: currentRequest.model,
+      modificationType: 'between_turn'
+    });
+  }
+
+  return modifications;
+}
+
+/**
+ * Detect all parameter modifications for a turn
+ */
+function detectParameterModifications(
+  turn: ConversationTurn,
+  conversationTurns: ConversationTurn[],
+  turnIndex: number
+): ParameterModifications | undefined {
+  let mods: ParameterModification[] = [];
+
+  // Type A: Check for intercept modifications
+  if (turn.request_modified && turn.original_request) {
+    mods = mods.concat(detectInterceptModifications(turn.request, turn.original_request));
+  }
+
+  // Type B: Check for between-turn changes
+  const prevTurn = turnIndex > 0 ? conversationTurns[turnIndex - 1] : undefined;
+  mods = mods.concat(detectBetweenTurnChanges(turn.request, prevTurn));
+
+  if (mods.length > 0) {
+    return {
+      hasModifications: true,
+      modifications: mods
+    };
+  }
+
+  return undefined;
+}
+
 /**
  * Build a tree structure for a conversation using trie-based merging.
  * All conversations in the tree are walked message-by-message;
@@ -1156,9 +1338,28 @@ export function buildConversationTree(conversationId: string): ConversationTree 
 
         // Divergence point - create new nodes for this and all remaining messages
         let parentChildren = currentChildren;
+        // Track which turns we've already emitted parameter modifications for
+        // Only emit on the first message of each turn to avoid clutter
+        const turnsWithParamModsEmitted = new Set<number>();
+
         for (let j = i; j < messages.length; j++) {
           const m = messages[j];
           const turnAnnotation = m.turn.annotation;
+
+          // Detect parameter modifications only for the first message of each turn
+          // This ensures the P indicator appears at the "point of change" not on every message
+          let paramMods: ParameterModifications | undefined;
+          if (!turnsWithParamModsEmitted.has(m.introducedInTurn)) {
+            paramMods = detectParameterModifications(
+              m.turn,
+              conv.turns,
+              m.introducedInTurn
+            );
+            if (paramMods) {
+              turnsWithParamModsEmitted.add(m.introducedInTurn);
+            }
+          }
+
           const node: ConversationTreeNode = {
             conversation_id: conv.conversation_id,
             turn_index: m.introducedInTurn,
@@ -1183,6 +1384,7 @@ export function buildConversationTree(conversationId: string): ConversationTree 
               thinking: s.thinking || undefined,
               timestamp: s.turn.timestamp,
             })),
+            parameter_modifications: paramMods,
           };
           parentChildren.push(node);
           parentChildren = node.children;
