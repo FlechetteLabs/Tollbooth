@@ -1360,6 +1360,18 @@ export function buildConversationTree(conversationId: string): ConversationTree 
             }
           }
 
+          // Extract request-id from response headers (for assistant nodes)
+          let requestId: string | undefined;
+          if (m.role === 'assistant' && m.turn.flow_id) {
+            const flow = storage.getTraffic(m.turn.flow_id);
+            if (flow?.response?.headers) {
+              // Try common header names for request ID
+              requestId = flow.response.headers['request-id'] ||
+                         flow.response.headers['x-request-id'] ||
+                         flow.response.headers['cf-ray']; // Cloudflare Ray ID as fallback
+            }
+          }
+
           const node: ConversationTreeNode = {
             conversation_id: conv.conversation_id,
             turn_index: m.introducedInTurn,
@@ -1385,6 +1397,7 @@ export function buildConversationTree(conversationId: string): ConversationTree 
               timestamp: s.turn.timestamp,
             })),
             parameter_modifications: paramMods,
+            request_id: requestId,
           };
           parentChildren.push(node);
           parentChildren = node.children;

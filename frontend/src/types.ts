@@ -227,6 +227,9 @@ export interface ConversationTreeNode {
 
   // Parameter modifications (system, tools, temperature, max_tokens, model)
   parameter_modifications?: ParameterModifications;
+
+  // Request ID from response headers (for assistant messages)
+  request_id?: string;
 }
 
 export interface ConversationTree {

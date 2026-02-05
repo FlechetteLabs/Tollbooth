@@ -45,7 +45,16 @@ function MessageBubble({
   const isUser = msgNode.role === 'user';
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [suggestionExpanded, setSuggestionExpanded] = useState(false);
+  const [copiedRequestId, setCopiedRequestId] = useState(false);
   const isLikelySuggestion = msgNode.is_likely_suggestion;
+
+  const handleCopyRequestId = useCallback(() => {
+    if (msgNode.request_id) {
+      navigator.clipboard.writeText(msgNode.request_id);
+      setCopiedRequestId(true);
+      setTimeout(() => setCopiedRequestId(false), 2000);
+    }
+  }, [msgNode.request_id]);
 
   // Likely-suggestion messages are hidden by default with a toggle
   if (isLikelySuggestion && !suggestionExpanded) {
@@ -120,6 +129,19 @@ function MessageBubble({
           <span className="text-cyan-400 text-xs" title={`Tags: ${msgNode.tags.join(', ')}`}>
             T{msgNode.tags.length}
           </span>
+        )}
+        {msgNode.request_id && (
+          <button
+            onClick={handleCopyRequestId}
+            className="font-mono text-xs text-inspector-muted hover:text-inspector-text transition-colors"
+            title="Click to copy request ID"
+          >
+            {copiedRequestId ? (
+              <span className="text-green-400">Copied!</span>
+            ) : (
+              <span>req: {msgNode.request_id.slice(0, 16)}{msgNode.request_id.length > 16 ? '...' : ''}</span>
+            )}
+          </button>
         )}
         {isLikelySuggestion && (
           <button
