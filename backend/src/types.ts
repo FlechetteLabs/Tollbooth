@@ -402,6 +402,8 @@ export type FilterConditionField =
   | 'path'
   | 'method'
   | 'header'
+  | 'request_body_contains'
+  | 'request_body_size'
   | 'is_llm_api'
   | 'status_code'
   | 'response_body_contains'
@@ -411,7 +413,7 @@ export type FilterConditionField =
 export interface FilterCondition {
   id?: string;  // Unique ID for UI (optional for backwards compat)
   field: FilterConditionField;
-  // For string matches (host, path, method, header values, response_body_contains)
+  // For string matches (host, path, method, header values, request/response_body_contains)
   match?: MatchType;
   value?: string;
   // For header conditions
@@ -420,7 +422,7 @@ export interface FilterCondition {
   boolValue?: boolean;
   // For status_code conditions
   statusMatch?: StatusCodeMatch;
-  // For response_size conditions
+  // For size conditions (request_body_size, response_size)
   sizeOperator?: 'gt' | 'lt' | 'gte' | 'lte';
   sizeBytes?: number;
   // Whether to negate this condition (NOT)

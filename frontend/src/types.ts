@@ -413,6 +413,8 @@ export type FilterConditionField =
   | 'path'
   | 'method'
   | 'header'
+  | 'request_body_contains'
+  | 'request_body_size'
   | 'is_llm_api'
   | 'status_code'
   | 'response_body_contains'

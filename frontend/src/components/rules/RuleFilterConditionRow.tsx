@@ -33,6 +33,8 @@ const fieldOptions: FieldGroup[] = [
       { value: 'path', label: 'Path', matchTypes: ['exact', 'contains', 'regex'] },
       { value: 'method', label: 'Method', matchTypes: ['exact', 'contains'] },
       { value: 'header', label: 'Request Header', matchTypes: ['exact', 'contains', 'regex'] },
+      { value: 'request_body_contains', label: 'Body Contains', matchTypes: ['contains', 'regex'] },
+      { value: 'request_body_size', label: 'Body Size', isSize: true },
       { value: 'is_llm_api', label: 'LLM API', isBoolean: true },
     ],
   },

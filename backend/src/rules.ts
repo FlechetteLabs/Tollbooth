@@ -640,6 +640,35 @@ export class RulesEngine extends EventEmitter {
         result = flow.is_llm_api === (condition.boolValue ?? true);
         break;
 
+      case 'request_body_contains':
+        if (request.content) {
+          if (condition.match === 'regex') {
+            try {
+              const regex = new RegExp(condition.value || '');
+              result = regex.test(request.content);
+            } catch {
+              result = false;
+            }
+          } else {
+            result = request.content.includes(condition.value || '');
+          }
+        }
+        break;
+
+      case 'request_body_size':
+        if (request.content) {
+          const size = request.content.length;
+          const bytes = condition.sizeBytes || 0;
+          switch (condition.sizeOperator) {
+            case 'gt': result = size > bytes; break;
+            case 'lt': result = size < bytes; break;
+            case 'gte': result = size >= bytes; break;
+            case 'lte': result = size <= bytes; break;
+            default: result = false;
+          }
+        }
+        break;
+
       case 'status_code':
         if (response) {
           const statusMatch = condition.statusMatch || 'exact';
