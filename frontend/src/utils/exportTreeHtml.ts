@@ -769,14 +769,17 @@ function getInlineScript(): string {
       container.addEventListener('mousedown', function(e) {
         if (e.button === 0) {
           isDragging = true;
-          dragStart = { x: e.clientX - viewState.panX, y: e.clientY - viewState.panY };
+          dragStart = { x: e.clientX, y: e.clientY, panX: viewState.panX, panY: viewState.panY };
         }
       });
 
       container.addEventListener('mousemove', function(e) {
         if (isDragging) {
-          viewState.panX = e.clientX - dragStart.x;
-          viewState.panY = e.clientY - dragStart.y;
+          const dx = e.clientX - dragStart.x;
+          const dy = e.clientY - dragStart.y;
+          // 2x multiplier for faster panning across large trees
+          viewState.panX = dragStart.panX + dx * 2;
+          viewState.panY = dragStart.panY + dy * 2;
           updateTransform();
         }
       });
