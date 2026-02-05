@@ -13,6 +13,8 @@ import { TreeNode } from './TreeNode';
 import { NodeDetailModal } from './NodeDetailModal';
 import { StarButton } from './StarButton';
 import { AnnotationPanel } from '../shared/AnnotationPanel';
+import { downloadTreeHtml } from '../../utils/exportTreeHtml';
+import { downloadTreeCanvas } from '../../utils/exportTreeCanvas';
 
 interface ConversationTreeViewProps {
   tree: ConversationTree;
@@ -31,32 +33,43 @@ interface PositionedNode {
 // Constants for layout - smaller nodes for messages
 const NODE_WIDTH = 200;
 const NODE_HEIGHT = 130;
+const NODE_WIDTH_EXPANDED = 380;
+const NODE_HEIGHT_EXPANDED = 280;
 const HORIZONTAL_GAP = 30;
+const HORIZONTAL_GAP_EXPANDED = 40;
 const VERTICAL_GAP = 40;
+const VERTICAL_GAP_EXPANDED = 40;
 
 /**
  * Calculate subtree width recursively
  */
-function calculateSubtreeWidth(node: ConversationTreeNode): number {
+function calculateSubtreeWidth(node: ConversationTreeNode, isExpanded: boolean): number {
+  const nodeWidth = isExpanded ? NODE_WIDTH_EXPANDED : NODE_WIDTH;
+  const hGap = isExpanded ? HORIZONTAL_GAP_EXPANDED : HORIZONTAL_GAP;
+
   if (node.children.length === 0) {
-    return NODE_WIDTH;
+    return nodeWidth;
   }
 
   const childrenWidth = node.children.reduce(
-    (sum, child) => sum + calculateSubtreeWidth(child),
+    (sum, child) => sum + calculateSubtreeWidth(child, isExpanded),
     0
   );
-  const gaps = (node.children.length - 1) * HORIZONTAL_GAP;
+  const gaps = (node.children.length - 1) * hGap;
 
-  return Math.max(NODE_WIDTH, childrenWidth + gaps);
+  return Math.max(nodeWidth, childrenWidth + gaps);
 }
 
 /**
  * Position nodes in the tree
  */
-function layoutTree(nodes: ConversationTreeNode[]): PositionedNode[] {
+function layoutTree(nodes: ConversationTreeNode[], isExpanded: boolean): PositionedNode[] {
   if (nodes.length === 0) return [];
 
+  const nodeWidth = isExpanded ? NODE_WIDTH_EXPANDED : NODE_WIDTH;
+  const nodeHeight = isExpanded ? NODE_HEIGHT_EXPANDED : NODE_HEIGHT;
+  const hGap = isExpanded ? HORIZONTAL_GAP_EXPANDED : HORIZONTAL_GAP;
+  const vGap = isExpanded ? VERTICAL_GAP_EXPANDED : VERTICAL_GAP;
   const positioned: PositionedNode[] = [];
 
   function positionNode(
@@ -64,13 +77,13 @@ function layoutTree(nodes: ConversationTreeNode[]): PositionedNode[] {
     centerX: number,
     y: number
   ): PositionedNode {
-    const nodeX = centerX - NODE_WIDTH / 2;
+    const nodeX = centerX - nodeWidth / 2;
     const positionedChildren: PositionedNode[] = [];
 
     if (node.children.length > 0) {
-      const childrenWidths = node.children.map(c => calculateSubtreeWidth(c));
+      const childrenWidths = node.children.map(c => calculateSubtreeWidth(c, isExpanded));
       const totalChildrenWidth = childrenWidths.reduce((a, b) => a + b, 0) +
-        (node.children.length - 1) * HORIZONTAL_GAP;
+        (node.children.length - 1) * hGap;
 
       let childX = centerX - totalChildrenWidth / 2;
 
@@ -81,11 +94,11 @@ function layoutTree(nodes: ConversationTreeNode[]): PositionedNode[] {
         const positionedChild = positionNode(
           node.children[i],
           childCenterX,
-          y + NODE_HEIGHT + VERTICAL_GAP
+          y + nodeHeight + vGap
         );
         positionedChildren.push(positionedChild);
 
-        childX += childWidth + HORIZONTAL_GAP;
+        childX += childWidth + hGap;
       }
     }
 
@@ -93,14 +106,14 @@ function layoutTree(nodes: ConversationTreeNode[]): PositionedNode[] {
       node,
       x: nodeX,
       y,
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
+      width: nodeWidth,
+      height: nodeHeight,
       children: positionedChildren,
     };
   }
 
   const rootNode = nodes[0];
-  const totalWidth = calculateSubtreeWidth(rootNode);
+  const totalWidth = calculateSubtreeWidth(rootNode, isExpanded);
   const centerX = totalWidth / 2;
 
   positioned.push(positionNode(rootNode, centerX, 0));
@@ -244,6 +257,26 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
   // Starring state
   const [starred, setStarred] = useState(false);
 
+  // Global message expansion state
+  const [expandAllMessages, setExpandAllMessages] = useState(false);
+
+  // Export handlers
+  const handleExportHtml = useCallback(() => {
+    downloadTreeHtml(tree, {
+      includeThinking: true,
+      includeAnnotations: true,
+      includeParameterMods: true,
+      includeFullMessages: true,
+    });
+  }, [tree]);
+
+  const handleExportCanvas = useCallback(() => {
+    downloadTreeCanvas(tree);
+  }, [tree]);
+
+  // Export dropdown state
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
   // Compute visible tree based on view root
   const visibleTree = useMemo(() => {
     if (!viewRootNodeId) {
@@ -261,8 +294,11 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
     return getAncestorPath(tree.nodes, viewRootNodeId);
   }, [tree.nodes, viewRootNodeId]);
 
-  // Layout the tree
-  const positionedTree = layoutTree(visibleTree);
+  // Layout the tree (recalculates when expansion state changes)
+  const positionedTree = useMemo(
+    () => layoutTree(visibleTree, expandAllMessages),
+    [visibleTree, expandAllMessages]
+  );
   const allNodes = collectAllNodes(positionedTree);
   const bounds = calculateBounds(allNodes);
   const totalNodeCount = countNodes(tree.nodes);
@@ -478,6 +514,7 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
                 node={pos.node}
                 isRoot={isRoot && idx === 0}
                 isSelected={isSelected}
+                isExpanded={expandAllMessages}
                 relatedTreeCount={tree.related_tree_count}
                 totalTreeCount={tree.total_tree_count}
                 onClick={() => handleNodeClick(pos.node)}
@@ -523,6 +560,50 @@ export function ConversationTreeView({ tree, onShowRelatedTrees }: ConversationT
               Show Full Tree
             </button>
           )}
+          <button
+            onClick={() => setExpandAllMessages(!expandAllMessages)}
+            className={clsx(
+              'px-2 py-1 text-sm rounded border',
+              expandAllMessages
+                ? 'bg-yellow-600 text-white border-yellow-600'
+                : 'bg-inspector-surface border-inspector-border hover:border-inspector-accent'
+            )}
+            title={expandAllMessages ? 'Collapse all messages' : 'Expand all messages (right-click nodes for individual)'}
+          >
+            {expandAllMessages ? 'Collapse' : 'Expand'}
+          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              onBlur={() => setTimeout(() => setShowExportMenu(false), 150)}
+              className="px-2 py-1 text-sm bg-inspector-surface border border-inspector-border rounded hover:border-inspector-accent"
+              title="Export tree"
+            >
+              Export ▾
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 mt-1 py-1 bg-inspector-surface border border-inspector-border rounded shadow-lg z-50 min-w-[140px]">
+                <button
+                  onClick={() => {
+                    handleExportCanvas();
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-inspector-bg"
+                >
+                  Obsidian Canvas
+                </button>
+                <button
+                  onClick={() => {
+                    handleExportHtml();
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-sm hover:bg-inspector-bg"
+                >
+                  HTML
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={handleZoomOut}
             className="px-2 py-1 text-sm bg-inspector-surface border border-inspector-border rounded hover:border-inspector-accent"
