@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ReplayVariant, TrafficFlow } from '../../types';
 import { CreateVariantModal } from './CreateVariantModal';
 import { AnnotationPanel } from '../shared/AnnotationPanel';
 
 const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:2000';
+
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
 
 interface VariantWithChildren extends ReplayVariant {
   children?: VariantWithChildren[];
@@ -30,6 +32,183 @@ export const ReplayView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState('');
+
+  // Inline editing state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedMethod, setEditedMethod] = useState('GET');
+  const [editedUrl, setEditedUrl] = useState('');
+  const [editedHeaders, setEditedHeaders] = useState<Record<string, string>>({});
+  const [editedBody, setEditedBody] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [newHeaderKey, setNewHeaderKey] = useState('');
+  const [newHeaderValue, setNewHeaderValue] = useState('');
+
+  // Get the original request data for comparison
+  const originalRequest = useMemo(() => {
+    if (detailMode === 'original' && selectedFlow) {
+      return {
+        method: selectedFlow.request.method,
+        url: selectedFlow.request.url,
+        headers: selectedFlow.request.headers,
+        body: selectedFlow.request.content || '',
+      };
+    } else if (detailMode === 'variant' && selectedVariant) {
+      return {
+        method: selectedVariant.request.method,
+        url: selectedVariant.request.url,
+        headers: selectedVariant.request.headers,
+        body: selectedVariant.request.body || '',
+      };
+    }
+    return null;
+  }, [detailMode, selectedFlow, selectedVariant]);
+
+  // Check if there are modifications
+  const hasModifications = useMemo(() => {
+    if (!originalRequest || !isEditing) return false;
+    if (editedMethod !== originalRequest.method) return true;
+    if (editedUrl !== originalRequest.url) return true;
+    if (editedBody !== originalRequest.body) return true;
+    // Compare headers
+    const origKeys = Object.keys(originalRequest.headers).sort();
+    const editKeys = Object.keys(editedHeaders).sort();
+    if (origKeys.length !== editKeys.length) return true;
+    for (const key of origKeys) {
+      if (originalRequest.headers[key] !== editedHeaders[key]) return true;
+    }
+    return false;
+  }, [originalRequest, isEditing, editedMethod, editedUrl, editedHeaders, editedBody]);
+
+  // Initialize edit state from current source
+  const initializeEditState = () => {
+    if (originalRequest) {
+      setEditedMethod(originalRequest.method);
+      setEditedUrl(originalRequest.url);
+      setEditedHeaders({ ...originalRequest.headers });
+      setEditedBody(originalRequest.body);
+    }
+  };
+
+  // Reset edit state
+  const resetEditState = () => {
+    setIsEditing(false);
+    setNewHeaderKey('');
+    setNewHeaderValue('');
+    if (originalRequest) {
+      setEditedMethod(originalRequest.method);
+      setEditedUrl(originalRequest.url);
+      setEditedHeaders({ ...originalRequest.headers });
+      setEditedBody(originalRequest.body);
+    }
+  };
+
+  // Toggle edit mode
+  const handleToggleEdit = () => {
+    if (!isEditing) {
+      initializeEditState();
+      setIsEditing(true);
+    } else {
+      resetEditState();
+    }
+  };
+
+  // Header editing helpers
+  const handleHeaderChange = (key: string, value: string) => {
+    setEditedHeaders((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleDeleteHeader = (key: string) => {
+    setEditedHeaders((prev) => {
+      const newHeaders = { ...prev };
+      delete newHeaders[key];
+      return newHeaders;
+    });
+  };
+
+  const handleAddHeader = () => {
+    if (newHeaderKey.trim() && newHeaderValue.trim()) {
+      setEditedHeaders((prev) => ({
+        ...prev,
+        [newHeaderKey.trim()]: newHeaderValue.trim(),
+      }));
+      setNewHeaderKey('');
+      setNewHeaderValue('');
+    }
+  };
+
+  // Send modified request (creates variant automatically)
+  const handleSendModified = async () => {
+    if (!selectedFlow || !hasModifications) return;
+
+    setIsSending(true);
+    try {
+      // Create a new variant with the modifications
+      const createRes = await fetch(`${API_BASE}/api/replay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parent_flow_id: selectedFlow.flow_id,
+          parent_variant_id: detailMode === 'variant' ? selectedVariant?.variant_id : undefined,
+          request: {
+            method: editedMethod,
+            url: editedUrl,
+            headers: editedHeaders,
+            body: editedBody,
+          },
+          description: `Modified ${editedMethod} request`,
+          intercept_on_replay: false,
+        }),
+      });
+
+      if (!createRes.ok) {
+        throw new Error('Failed to create variant');
+      }
+
+      const createData = await createRes.json();
+      const newVariant = createData.variant;
+
+      // Send the variant
+      const sendRes = await fetch(`${API_BASE}/api/replay/${newVariant.variant_id}/send`, {
+        method: 'POST',
+      });
+
+      if (sendRes.ok) {
+        // Refresh variant and switch to it
+        const updatedRes = await fetch(`${API_BASE}/api/replay/${newVariant.variant_id}`);
+        if (updatedRes.ok) {
+          const updatedVariant = await updatedRes.json();
+          setSelectedVariant(updatedVariant);
+          setDetailMode('variant');
+        }
+
+        // Refresh tree
+        if (selectedFlowId) {
+          const treeRes = await fetch(`${API_BASE}/api/replay/tree/${selectedFlowId}`);
+          if (treeRes.ok) {
+            setVariantTree(await treeRes.json());
+          }
+        }
+
+        // Refresh flows list
+        const flowsRes = await fetch(`${API_BASE}/api/replay`);
+        if (flowsRes.ok) {
+          const flowsData = await flowsRes.json();
+          const flowIds = new Set<string>();
+          for (const v of flowsData.variants || []) {
+            flowIds.add(v.parent_flow_id);
+          }
+          setFlowsWithVariants(Array.from(flowIds));
+        }
+
+        // Reset edit state
+        setIsEditing(false);
+      }
+    } catch (err) {
+      console.error('Failed to send modified request:', err);
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   // Fetch all flows with variants and their names
   useEffect(() => {
@@ -102,6 +281,13 @@ export const ReplayView: React.FC = () => {
     };
     fetchData();
   }, [selectedFlowId]);
+
+  // Reset edit state when switching between original/variant
+  useEffect(() => {
+    setIsEditing(false);
+    setNewHeaderKey('');
+    setNewHeaderValue('');
+  }, [detailMode, selectedVariant?.variant_id, selectedFlowId]);
 
   // Fetch result flow when variant with result is selected
   useEffect(() => {
@@ -468,43 +654,151 @@ export const ReplayView: React.FC = () => {
                 <h2 className="text-lg font-medium text-white flex items-center gap-2">
                   <span className="text-green-400">\u2605</span>
                   Original Request
+                  {isEditing && hasModifications && (
+                    <span className="text-yellow-400 text-sm">*</span>
+                  )}
                 </h2>
                 <div className="text-sm text-gray-400">
                   {new Date(selectedFlow.timestamp).toLocaleString()}
                 </div>
               </div>
-              <button
-                onClick={() => handleCreateVariant()}
-                className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-500"
-              >
-                Create Variant
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleToggleEdit}
+                  className={`px-3 py-1.5 rounded text-sm ${
+                    isEditing
+                      ? 'bg-gray-600 text-white hover:bg-gray-500'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {isEditing ? 'Cancel Edit' : 'Edit'}
+                </button>
+                {isEditing && hasModifications ? (
+                  <button
+                    onClick={handleSendModified}
+                    disabled={isSending}
+                    className="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-500 disabled:opacity-50"
+                  >
+                    {isSending ? 'Sending...' : 'Send Modified'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleCreateVariant()}
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-500"
+                  >
+                    Create Variant
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {/* Request details */}
               <div className="bg-gray-800 rounded p-3">
                 <h3 className="text-sm font-medium text-gray-300 mb-2">Request</h3>
-                <div className="text-sm text-gray-200 mb-2">
-                  <span className="text-blue-400 font-medium">{selectedFlow.request.method}</span>{' '}
-                  {selectedFlow.request.url}
-                </div>
-                <div className="space-y-2">
-                  <div>
-                    <div className="text-xs text-gray-400 mb-1">Headers</div>
-                    <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-32">
-                      {formatHeaders(selectedFlow.request.headers)}
-                    </pre>
-                  </div>
-                  {selectedFlow.request.content && (
-                    <div>
-                      <div className="text-xs text-gray-400 mb-1">Body</div>
-                      <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-64">
-                        {selectedFlow.request.content}
-                      </pre>
+                {isEditing ? (
+                  <>
+                    {/* Editable method and URL */}
+                    <div className="flex gap-2 mb-3">
+                      <select
+                        value={editedMethod}
+                        onChange={(e) => setEditedMethod(e.target.value)}
+                        className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-blue-400 font-medium"
+                      >
+                        {HTTP_METHODS.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={editedUrl}
+                        onChange={(e) => setEditedUrl(e.target.value)}
+                        className="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200"
+                      />
                     </div>
-                  )}
-                </div>
+                    {/* Editable headers */}
+                    <div className="mb-3">
+                      <div className="text-xs text-gray-400 mb-2">Headers</div>
+                      <div className="space-y-2">
+                        {Object.entries(editedHeaders).map(([key, value]) => (
+                          <div key={key} className="flex items-start gap-2 font-mono text-sm">
+                            <span className="text-blue-400 shrink-0">{key}:</span>
+                            <input
+                              type="text"
+                              value={value}
+                              onChange={(e) => handleHeaderChange(key, e.target.value)}
+                              className="flex-1 min-w-0 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-300"
+                            />
+                            <button
+                              onClick={() => handleDeleteHeader(key)}
+                              className="text-red-400 hover:text-red-300 px-1"
+                              title="Remove header"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        {/* Add new header */}
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-700">
+                          <input
+                            type="text"
+                            placeholder="Header name"
+                            value={newHeaderKey}
+                            onChange={(e) => setNewHeaderKey(e.target.value)}
+                            className="w-32 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-300"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Value"
+                            value={newHeaderValue}
+                            onChange={(e) => setNewHeaderValue(e.target.value)}
+                            className="flex-1 min-w-0 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-300"
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddHeader()}
+                          />
+                          <button
+                            onClick={handleAddHeader}
+                            className="px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-500"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Editable body */}
+                    <div>
+                      <div className="text-xs text-gray-400 mb-2">Body</div>
+                      <textarea
+                        value={editedBody}
+                        onChange={(e) => setEditedBody(e.target.value)}
+                        className="w-full h-48 bg-gray-900 border border-gray-600 rounded p-2 text-xs text-gray-300 font-mono resize-y"
+                        spellCheck={false}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm text-gray-200 mb-2">
+                      <span className="text-blue-400 font-medium">{selectedFlow.request.method}</span>{' '}
+                      {selectedFlow.request.url}
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">Headers</div>
+                        <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-32">
+                          {formatHeaders(selectedFlow.request.headers)}
+                        </pre>
+                      </div>
+                      {selectedFlow.request.content && (
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">Body</div>
+                          <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-64">
+                            {selectedFlow.request.content}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Response details */}
@@ -552,24 +846,49 @@ export const ReplayView: React.FC = () => {
             {/* Variant header */}
             <div className="p-4 border-b border-gray-700 flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-medium text-white">{selectedVariant.description}</h2>
+                <h2 className="text-lg font-medium text-white flex items-center gap-2">
+                  {selectedVariant.description}
+                  {isEditing && hasModifications && (
+                    <span className="text-yellow-400 text-sm">*</span>
+                  )}
+                </h2>
                 <div className="text-sm text-gray-400">
                   Created {new Date(selectedVariant.created_at).toLocaleString()}
                 </div>
               </div>
               <div className="flex gap-2">
                 <button
+                  onClick={handleToggleEdit}
+                  className={`px-3 py-1.5 rounded text-sm ${
+                    isEditing
+                      ? 'bg-gray-600 text-white hover:bg-gray-500'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {isEditing ? 'Cancel Edit' : 'Edit'}
+                </button>
+                <button
                   onClick={() => handleCreateVariant(selectedVariant)}
                   className="px-3 py-1.5 bg-gray-700 text-white rounded text-sm hover:bg-gray-600"
                 >
                   Clone
                 </button>
-                <button
-                  onClick={() => handleSendReplay(selectedVariant)}
-                  className="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-500"
-                >
-                  Send
-                </button>
+                {isEditing && hasModifications ? (
+                  <button
+                    onClick={handleSendModified}
+                    disabled={isSending}
+                    className="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-500 disabled:opacity-50"
+                  >
+                    {isSending ? 'Sending...' : 'Send Modified'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSendReplay(selectedVariant)}
+                    className="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-500"
+                  >
+                    Send
+                  </button>
+                )}
                 <button
                   onClick={() => handleDeleteVariant(selectedVariant)}
                   className="px-3 py-1.5 bg-red-600/20 text-red-400 rounded text-sm hover:bg-red-600/30"
@@ -608,26 +927,109 @@ export const ReplayView: React.FC = () => {
               {/* Request details */}
               <div className="bg-gray-800 rounded p-3">
                 <h3 className="text-sm font-medium text-gray-300 mb-2">Request (Variant)</h3>
-                <div className="text-sm text-gray-200 mb-2">
-                  <span className="text-blue-400 font-medium">{selectedVariant.request.method}</span>{' '}
-                  {selectedVariant.request.url}
-                </div>
-                <div className="space-y-2">
-                  <div>
-                    <div className="text-xs text-gray-400 mb-1">Headers</div>
-                    <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-32">
-                      {formatHeaders(selectedVariant.request.headers)}
-                    </pre>
-                  </div>
-                  {selectedVariant.request.body && (
-                    <div>
-                      <div className="text-xs text-gray-400 mb-1">Body</div>
-                      <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-64">
-                        {selectedVariant.request.body}
-                      </pre>
+                {isEditing ? (
+                  <>
+                    {/* Editable method and URL */}
+                    <div className="flex gap-2 mb-3">
+                      <select
+                        value={editedMethod}
+                        onChange={(e) => setEditedMethod(e.target.value)}
+                        className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-blue-400 font-medium"
+                      >
+                        {HTTP_METHODS.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={editedUrl}
+                        onChange={(e) => setEditedUrl(e.target.value)}
+                        className="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200"
+                      />
                     </div>
-                  )}
-                </div>
+                    {/* Editable headers */}
+                    <div className="mb-3">
+                      <div className="text-xs text-gray-400 mb-2">Headers</div>
+                      <div className="space-y-2">
+                        {Object.entries(editedHeaders).map(([key, value]) => (
+                          <div key={key} className="flex items-start gap-2 font-mono text-sm">
+                            <span className="text-blue-400 shrink-0">{key}:</span>
+                            <input
+                              type="text"
+                              value={value}
+                              onChange={(e) => handleHeaderChange(key, e.target.value)}
+                              className="flex-1 min-w-0 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-300"
+                            />
+                            <button
+                              onClick={() => handleDeleteHeader(key)}
+                              className="text-red-400 hover:text-red-300 px-1"
+                              title="Remove header"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        {/* Add new header */}
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-700">
+                          <input
+                            type="text"
+                            placeholder="Header name"
+                            value={newHeaderKey}
+                            onChange={(e) => setNewHeaderKey(e.target.value)}
+                            className="w-32 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-300"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Value"
+                            value={newHeaderValue}
+                            onChange={(e) => setNewHeaderValue(e.target.value)}
+                            className="flex-1 min-w-0 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-300"
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddHeader()}
+                          />
+                          <button
+                            onClick={handleAddHeader}
+                            className="px-2 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-500"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Editable body */}
+                    <div>
+                      <div className="text-xs text-gray-400 mb-2">Body</div>
+                      <textarea
+                        value={editedBody}
+                        onChange={(e) => setEditedBody(e.target.value)}
+                        className="w-full h-48 bg-gray-900 border border-gray-600 rounded p-2 text-xs text-gray-300 font-mono resize-y"
+                        spellCheck={false}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm text-gray-200 mb-2">
+                      <span className="text-blue-400 font-medium">{selectedVariant.request.method}</span>{' '}
+                      {selectedVariant.request.url}
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-xs text-gray-400 mb-1">Headers</div>
+                        <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-32">
+                          {formatHeaders(selectedVariant.request.headers)}
+                        </pre>
+                      </div>
+                      {selectedVariant.request.body && (
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">Body</div>
+                          <pre className="bg-gray-900 p-2 rounded text-xs text-gray-300 overflow-x-auto max-h-64">
+                            {selectedVariant.request.body}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Response from result flow */}
