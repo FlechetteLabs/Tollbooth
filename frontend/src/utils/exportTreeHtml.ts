@@ -796,7 +796,7 @@ function getInlineScript(): string {
         const cx = e.clientX - rect.left;
         const cy = e.clientY - rect.top;
 
-        const newZoom = Math.min(Math.max(viewState.zoom * factor, 0.1), 3);
+        const newZoom = Math.min(Math.max(viewState.zoom * factor, 0.1), 20);
         viewState.panX = cx - (cx - viewState.panX) / viewState.zoom * newZoom;
         viewState.panY = cy - (cy - viewState.panY) / viewState.zoom * newZoom;
         viewState.zoom = newZoom;
@@ -815,7 +815,7 @@ function getInlineScript(): string {
     }
 
     function zoomIn() {
-      viewState.zoom = Math.min(viewState.zoom * 1.2, 3);
+      viewState.zoom = Math.min(viewState.zoom * 1.2, 20);
       updateTransform();
     }
 
