@@ -172,6 +172,47 @@ services:
     profiles:
       - agent
 
+  # Jupyter notebook container - for running LLM safety research notebooks
+  # API calls from notebooks go through Tollbooth proxy for visibility
+  # Jupyter web UI is accessed directly at http://localhost:8888
+  jupyter:
+    build:
+      context: ./jupyter
+      dockerfile: Dockerfile
+    ports:
+      # Jupyter web UI - accessed directly, not through proxy
+      - "${JUPYTER_PORT:-8890}:8888"
+    volumes:
+      # Mount certificates (read-only)
+      - ./certs:/certs:ro
+      # Mount workspace for notebooks (same as agent)
+      - ./workspace:/workspace
+      # Mount tollbooth data directory (read-only for analysis)
+      - ./tollbooth-data:/data:ro
+    environment:
+      # Proxy configuration - routes notebook API calls through Tollbooth
+      - HTTP_PROXY=http://proxy:8080
+      - HTTPS_PROXY=http://proxy:8080
+      - http_proxy=http://proxy:8080
+      - https_proxy=http://proxy:8080
+      # CA certificate paths
+      - SSL_CERT_FILE=/certs/mitmproxy-ca-cert.pem
+      - REQUESTS_CA_BUNDLE=/certs/mitmproxy-ca-cert.pem
+      - CURL_CA_BUNDLE=/certs/mitmproxy-ca-cert.pem
+      # Pass through API keys from host environment (if set)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      # Jupyter port (configurable)
+      - JUPYTER_PORT=${JUPYTER_PORT:-8888}
+    depends_on:
+      - proxy
+    networks:
+      - inspector-net
+    # Enabled by default - to disable, comment out this service or use:
+    #   docker compose up proxy backend frontend
+    # To run only Jupyter: docker compose up jupyter
+
 networks:
   inspector-net:
     driver: bridge
