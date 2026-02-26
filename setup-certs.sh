@@ -20,8 +20,8 @@ fi
 # Run mitmdump briefly - it generates certs on first start
 # Use timeout to exit after 2 seconds (certs are generated immediately on startup)
 echo "Generating new CA certificates..."
-timeout 2s docker run --rm -v "$(pwd)/$CERT_DIR:/home/mitmproxy/.mitmproxy" mitmproxy/mitmproxy \
-    mitmdump --set confdir=/home/mitmproxy/.mitmproxy 2>/dev/null || true
+docker run --rm -v "$(pwd)/$CERT_DIR:/home/mitmproxy/.mitmproxy" mitmproxy/mitmproxy \
+    timeout 2s mitmdump --set confdir=/home/mitmproxy/.mitmproxy 2>/dev/null || true
 
 # Fix permissions (mitmproxy container creates files as uid 1000)
 if [ -d "$CERT_DIR" ]; then
