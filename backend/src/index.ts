@@ -48,6 +48,7 @@ import { LLMProvider, ConfigurableLLMProvider, DEFAULT_BASE_URLS } from './setti
 import { refusalManager } from './refusal';
 import { RefusalRule, PendingRefusal, Annotation, AnnotationTargetType, ReplayVariant, InlineAnnotation, Conversation, ContentBlock, ConversationTurn } from './types';
 import { shortIdRegistry } from './short-id-registry';
+import { carve } from './carver/carve';
 import { replayManager } from './replay';
 import { loadFilterConfig } from './message-filter';
 
@@ -519,6 +520,31 @@ app.get('/api/conversations/:conversationId/export', (req, res) => {
 
     default:
       res.status(400).json({ error: 'Invalid format. Use json, markdown, or html' });
+  }
+});
+
+// Carve — static artifact extraction from a captured session
+app.get('/api/conversations/:conversationId/carve', (req, res) => {
+  const conversation = storage.getConversation(req.params.conversationId);
+  if (!conversation) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+  try {
+    const result = carve(conversation);
+    const preview = req.query.preview === 'true';
+    if (preview) {
+      res.json({ manifest: result.manifest });
+      return;
+    }
+    const download = req.query.download === 'true';
+    if (download) {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="carve-${conversation.conversation_id}.json"`);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[API] Carve failed:', err);
+    res.status(500).json({ error: String(err) });
   }
 });
 

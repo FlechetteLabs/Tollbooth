@@ -7,6 +7,7 @@ import { clsx } from 'clsx';
 import { useAppStore } from '../../stores/appStore';
 import { MessageBubble } from './MessageBubble';
 import { BranchExplorerPanel } from './BranchExplorerPanel';
+import { CarveModal } from './CarveModal';
 import { ConversationTurn, ContentBlock, LLMMessage, ParsedLLMResponse } from '../../types';
 
 type ViewMode = 'modified' | 'original' | 'compare';
@@ -416,6 +417,7 @@ export function ConversationDetailView() {
   const { selectedConversationId, conversations, setSelectedConversationId } = useAppStore();
   const [exporting, setExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showCarveModal, setShowCarveModal] = useState(false);
   const [activeTab, setActiveTab] = useState<TabMode>('tree'); // Tree is now primary
 
   const handleExport = async (format: 'json' | 'markdown' | 'html') => {
@@ -515,6 +517,13 @@ export function ConversationDetailView() {
             )}
           </div>
           <button
+            onClick={() => setShowCarveModal(true)}
+            className="px-3 py-1 rounded text-sm bg-inspector-surface border border-inspector-border hover:border-inspector-accent"
+            title="Extract artifacts (files, commands, transcript) from this session"
+          >
+            Carve
+          </button>
+          <button
             onClick={() => setSelectedConversationId(null)}
             className="text-inspector-muted hover:text-inspector-text"
           >
@@ -582,6 +591,9 @@ export function ConversationDetailView() {
         <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
           <BranchExplorerPanel conversationId={selectedConversationId} />
         </div>
+      )}
+      {showCarveModal && (
+        <CarveModal conversationId={selectedConversationId} onClose={() => setShowCarveModal(false)} />
       )}
     </div>
   );
