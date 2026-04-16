@@ -114,8 +114,8 @@ export function adaptToolUse(ctx: AdaptContext): ToolAction[] {
     if (path) return [{ ...base, kind: 'read', path, content } satisfies ReadAction];
   }
 
-  // Claude Code: Bash / Codex: shell / local_shell / container.exec
-  if (name === 'bash' || name === 'shell' || name === 'localshell' || name === 'containerexec') {
+  // Claude Code: Bash / Codex: shell / local_shell / local_shell_call / container.exec
+  if (name === 'bash' || name === 'shell' || name === 'localshell' || name === 'localshellcall' || name === 'containerexec') {
     let command: string | undefined;
     if (typeof input.command === 'string') command = input.command;
     else if (Array.isArray(input.command)) {

@@ -341,7 +341,7 @@ class AnthropicParser implements APIParser {
 
 // ============ OpenAI Parser ============
 
-class OpenAIParser implements APIParser {
+export class OpenAIParser implements APIParser {
   provider: LLMProvider = 'openai';
 
   canParse(host: string, path: string): boolean {
@@ -385,37 +385,44 @@ class OpenAIParser implements APIParser {
   parseResponse(response: HttpResponse): ParsedLLMResponse | null {
     if (!response.content) return null;
 
+    const content = response.content;
+    // If the body looks like SSE (streaming accumulated), route to the SSE parser.
+    // Chat Completions SSE starts with "data: " lines.
+    if (content.startsWith('data: ') || content.includes('\ndata: ')) {
+      return this.parseSSEContent(content);
+    }
+
     try {
-      const body = JSON.parse(response.content);
+      const body = JSON.parse(content);
       const choice = body.choices?.[0];
       const message = choice?.message;
 
-      const content: ContentBlock[] = [];
+      const blocks: ContentBlock[] = [];
       if (message?.content) {
-        content.push({ type: 'text', text: message.content });
+        blocks.push({ type: 'text', text: message.content });
       }
       if (message?.tool_calls) {
         for (const tc of message.tool_calls) {
-          content.push({
+          blocks.push({
             type: 'tool_use',
             id: tc.id,
             name: tc.function.name,
-            input: JSON.parse(tc.function.arguments || '{}'),
+            input: this.safeParseJSON(tc.function.arguments),
           });
         }
       }
       if (message?.function_call) {
-        content.push({
+        blocks.push({
           type: 'tool_use',
           id: 'legacy_function',
           name: message.function_call.name,
-          input: JSON.parse(message.function_call.arguments || '{}'),
+          input: this.safeParseJSON(message.function_call.arguments),
         });
       }
 
       return {
         provider: 'openai',
-        content,
+        content: blocks,
         model: body.model,
         stop_reason: choice?.finish_reason,
         usage: body.usage ? {
@@ -427,6 +434,89 @@ class OpenAIParser implements APIParser {
     } catch {
       return null;
     }
+  }
+
+  private safeParseJSON(s: string | undefined): Record<string, unknown> {
+    if (!s) return {};
+    try {
+      return JSON.parse(s);
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Parse accumulated Chat Completions SSE stream.
+   * Delta tool_calls arrive keyed by `index`; arguments concatenate across chunks.
+   * We accumulate by index, then emit one tool_use per index with parsed JSON args.
+   */
+  private parseSSEContent(content: string): ParsedLLMResponse | null {
+    const textParts: string[] = [];
+    const toolAcc = new Map<number, { id: string; name: string; args: string }>();
+    let stopReason: string | undefined;
+    let model: string | undefined;
+    let usage: { input_tokens: number; output_tokens: number } | undefined;
+
+    const events = content.split('\n\n');
+    for (const ev of events) {
+      for (const line of ev.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') continue;
+        let parsed: any;
+        try { parsed = JSON.parse(data); } catch { continue; }
+        if (parsed.model && !model) model = parsed.model;
+        const choice = parsed.choices?.[0];
+        if (!choice) {
+          if (parsed.usage) {
+            usage = {
+              input_tokens: parsed.usage.prompt_tokens || 0,
+              output_tokens: parsed.usage.completion_tokens || 0,
+            };
+          }
+          continue;
+        }
+        const delta = choice.delta;
+        if (delta?.content) textParts.push(delta.content);
+        if (Array.isArray(delta?.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const idx = typeof tc.index === 'number' ? tc.index : 0;
+            let entry = toolAcc.get(idx);
+            if (!entry) {
+              entry = { id: '', name: '', args: '' };
+              toolAcc.set(idx, entry);
+            }
+            if (tc.id) entry.id = tc.id;
+            if (tc.function?.name) entry.name = tc.function.name;
+            if (typeof tc.function?.arguments === 'string') entry.args += tc.function.arguments;
+          }
+        }
+        if (choice.finish_reason) stopReason = choice.finish_reason;
+      }
+    }
+
+    const blocks: ContentBlock[] = [];
+    if (textParts.length) blocks.push({ type: 'text', text: textParts.join('') });
+    for (const idx of Array.from(toolAcc.keys()).sort((a, b) => a - b)) {
+      const e = toolAcc.get(idx)!;
+      if (!e.name) continue;
+      blocks.push({
+        type: 'tool_use',
+        id: e.id || `stream_${idx}`,
+        name: e.name,
+        input: this.safeParseJSON(e.args),
+      });
+    }
+
+    if (blocks.length === 0 && !stopReason) return null;
+    return {
+      provider: 'openai',
+      content: blocks,
+      model,
+      stop_reason: stopReason,
+      usage,
+      raw: { streaming: true, length: content.length },
+    };
   }
 
   parseStreamChunk(chunk: string): Partial<ParsedLLMResponse> | null {
@@ -634,7 +724,7 @@ class GoogleParser implements APIParser {
 
 // ============ Codex Parser (OpenAI Codex CLI) ============
 
-class CodexParser implements APIParser {
+export class CodexParser implements APIParser {
   provider: LLMProvider = 'openai';  // Codex is an OpenAI product
 
   canParse(host: string, path: string): boolean {
@@ -648,12 +738,59 @@ class CodexParser implements APIParser {
       const body = JSON.parse(request.content);
       const messages: LLMMessage[] = [];
 
-      // Parse input array (Codex uses "input" instead of "messages")
+      // Parse input array (Codex uses "input" instead of "messages").
+      // Codex emits top-level function_call / function_call_output items interleaved
+      // with message items; we lift each into a synthetic assistant/user message
+      // carrying a single tool_use / tool_result block, preserving chronological order.
       for (const item of body.input || []) {
         if (item.type === 'message') {
           const role = this.mapRole(item.role);
           const content = this.normalizeContent(item.content);
           messages.push({ role, content });
+        } else if (item.type === 'function_call') {
+          let input: Record<string, unknown> = {};
+          try { input = typeof item.arguments === 'string' ? JSON.parse(item.arguments) : (item.arguments || {}); } catch {}
+          messages.push({
+            role: 'assistant',
+            content: [{
+              type: 'tool_use',
+              id: item.call_id || item.id || '',
+              name: item.name || '',
+              input,
+            }],
+          });
+        } else if (item.type === 'local_shell_call') {
+          const action = item.action || {};
+          messages.push({
+            role: 'assistant',
+            content: [{
+              type: 'tool_use',
+              id: item.call_id || item.id || '',
+              name: 'local_shell_call',
+              input: {
+                command: action.command,
+                working_directory: action.working_directory,
+                timeout_ms: action.timeout_ms,
+                env: action.env,
+                user: action.user,
+              },
+            }],
+          });
+        } else if (item.type === 'function_call_output' || item.type === 'local_shell_call_output') {
+          const out = item.output;
+          const content: string | ContentBlock[] = typeof out === 'string'
+            ? out
+            : Array.isArray(out)
+              ? out.map((x: any) => x?.text ?? JSON.stringify(x)).join('\n')
+              : JSON.stringify(out ?? '');
+          messages.push({
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: item.call_id || '',
+              content,
+            }],
+          });
         }
       }
 
@@ -900,6 +1037,36 @@ class CodexParser implements APIParser {
               name: item.name || '',
               input,
             });
+          } else if (item?.type === 'local_shell_call') {
+            const action = item.action || {};
+            toolCalls.push({
+              type: 'tool_use',
+              id: item.call_id || item.id || '',
+              name: 'local_shell_call',
+              input: {
+                command: action.command,
+                working_directory: action.working_directory,
+                timeout_ms: action.timeout_ms,
+                env: action.env,
+                user: action.user,
+              },
+            });
+          } else if (item?.type === 'reasoning') {
+            const parts: string[] = [];
+            if (Array.isArray(item.summary)) {
+              for (const s of item.summary) {
+                if (s?.text) parts.push(s.text);
+              }
+            }
+            if (Array.isArray(item.content)) {
+              for (const c of item.content) {
+                if (c?.text) parts.push(c.text);
+              }
+            }
+            if (parts.length) {
+              textParts.push(''); // nothing; we emit a thinking block separately below
+              toolCalls.push({ type: 'thinking', thinking: parts.join('\n') } as any);
+            }
           }
         }
       } catch {
